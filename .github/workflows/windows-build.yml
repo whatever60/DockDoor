@@ -1,0 +1,66 @@
+name: Windows Dock custom build
+
+on:
+  push:
+    branches: [windows-dock-click]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-dock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test-package:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Xcode version
+        run: xcodebuild -version
+      - name: Resolve packages
+        run: xcodebuild -resolvePackageDependencies -project DockDoor.xcodeproj -scheme DockDoor
+      - name: Test
+        timeout-minutes: 20
+        run: >-
+          xcodebuild test -quiet -project DockDoor.xcodeproj -scheme DockDoor
+          -destination 'platform=macOS' -derivedDataPath TestBuild
+          -resultBundlePath TestResults.xcresult -parallel-testing-enabled NO
+          CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+          ENABLE_USER_SCRIPT_SANDBOXING=NO
+      - name: Build ARM64 release
+        run: >-
+          xcodebuild build -quiet -project DockDoor.xcodeproj -scheme DockDoor
+          -configuration Release -destination 'generic/platform=macOS'
+          -derivedDataPath ReleaseBuild ARCHS=arm64 ONLY_ACTIVE_ARCH=NO
+          CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+          ENABLE_USER_SCRIPT_SANDBOXING=NO
+      - name: Mark and sign the personal build
+        env:
+          FORK_COMMIT: ${{ github.sha }}
+        run: |
+          app=ReleaseBuild/Build/Products/Release/DockDoor.app
+          /usr/libexec/PlistBuddy -c 'Add :DockDoorCustomBuild bool true' "$app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Add :DockDoorForkCommit string $FORK_COMMIT" "$app/Contents/Info.plist"
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          ditto -c -k --sequesterRsrc --keepParent "$app" DockDoor-windows-arm64.zip
+          shasum -a 256 DockDoor-windows-arm64.zip > DockDoor-windows-arm64.zip.sha256
+      - name: Upload application
+        uses: actions/upload-artifact@v4
+        with:
+          name: DockDoor-windows-arm64
+          path: |
+            DockDoor-windows-arm64.zip
+            DockDoor-windows-arm64.zip.sha256
+          retention-days: 14
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: DockDoor-test-results
+          path: TestResults.xcresult
+          if-no-files-found: ignore
+          retention-days: 7

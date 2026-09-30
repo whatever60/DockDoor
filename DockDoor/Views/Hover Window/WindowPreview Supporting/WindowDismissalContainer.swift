@@ -90,6 +90,10 @@ class MouseTrackingNSView: NSView {
         inactivityCheckTimer?.invalidate()
         inactivityCheckTimer = Timer.scheduledTimer(withTimeInterval: inactivityCheckInterval, repeats: true) { [weak self] _ in
             guard let self, let window else { return }
+            guard SharedPreviewWindowCoordinator.activeInstance?.isClickPreviewPersistent != true else {
+                cancelFadeOut()
+                return
+            }
 
             let currentMouseLocation = NSEvent.mouseLocation
             let windowFrame = window.frame.insetBy(dx: HoverContainerPadding.container, dy: HoverContainerPadding.container)
@@ -151,6 +155,7 @@ class MouseTrackingNSView: NSView {
     private func startFadeOut() {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard SharedPreviewWindowCoordinator.activeInstance?.isClickPreviewPersistent != true else { return }
             guard SharedPreviewWindowCoordinator.activeInstance?.windowSwitcherCoordinator.windowSwitcherActive == false else { return }
             guard !DockObserver.isCmdTabSwitcherActive else { return }
 
@@ -177,6 +182,7 @@ class MouseTrackingNSView: NSView {
     private func setWindowOpacity(to value: CGFloat, duration: TimeInterval) {
         DispatchQueue.main.async { [weak self] in
             guard let window = self?.window else { return }
+            if value < 1, SharedPreviewWindowCoordinator.activeInstance?.isClickPreviewPersistent == true { return }
             if window.alphaValue == value { return }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = duration
@@ -188,6 +194,7 @@ class MouseTrackingNSView: NSView {
     private func performHideWindow(preventLastAppClear: Bool = false) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
+            guard SharedPreviewWindowCoordinator.activeInstance?.isClickPreviewPersistent != true else { return }
             let preservePendingShow = shouldPreservePendingShowForDockIconTransition()
             SharedPreviewWindowCoordinator.activeInstance?.hideWindow(cancelPendingShow: !preservePendingShow)
         }

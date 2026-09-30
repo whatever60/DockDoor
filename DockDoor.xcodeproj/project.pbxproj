@@ -61,6 +61,8 @@
 		AA11001122334455AA110044 /* DockLockingSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11001122334455AA110033 /* DockLockingSettingsView.swift */; };
 		AA11001122334455AA110066 /* DockLockerGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11001122334455AA110055 /* DockLockerGeometryTests.swift */; };
 		555110B7F7B99C7BD510DBC7 /* NativeTabGroupingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00D4B366E3CF5338182E065 /* NativeTabGroupingTests.swift */; };
+		ABF759DEF7844CE59BF6A99F /* DockClickPreviewStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE56FCBE8524935B37610CD /* DockClickPreviewStateTests.swift */; };
+		3E28C72FB23E4EBDA937C116 /* DockClickPreviewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E2254CF59F94CA8AF5E7401 /* DockClickPreviewState.swift */; };
 		B376D66B467C4587915220BC80D3B9CB /* ScriptCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = F098F8107F464776B5C18294427CAECD /* ScriptCommands.swift */; };
 		B3C9F20484F14266B941AFB170B66530 /* MediaRemoteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC298B81953848F481EE849906E0AE77 /* MediaRemoteService.swift */; };
 		B84941090B484695B105D967 /* SettingsGroup.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4258675B29E4A22ACF92845 /* SettingsGroup.swift */; };
@@ -286,6 +288,8 @@
 		AA11001122334455AA110033 /* DockLockingSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockLockingSettingsView.swift; sourceTree = "<group>"; };
 		AA11001122334455AA110055 /* DockLockerGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockLockerGeometryTests.swift; sourceTree = "<group>"; };
 		D00D4B366E3CF5338182E065 /* NativeTabGroupingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTabGroupingTests.swift; sourceTree = "<group>"; };
+		9CE56FCBE8524935B37610CD /* DockClickPreviewStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockClickPreviewStateTests.swift; sourceTree = "<group>"; };
+		2E2254CF59F94CA8AF5E7401 /* DockClickPreviewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockClickPreviewState.swift; sourceTree = "<group>"; };
 		AA11001122334455AA110100 /* DockDoorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DockDoorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC298B81953848F481EE849906E0AE77 /* MediaRemoteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaRemoteService.swift; sourceTree = "<group>"; };
 		B056906A7ACD4903BD5E1627B359AE2C /* AdvancedSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AdvancedSettingsView.swift; sourceTree = "<group>"; };
@@ -589,6 +593,7 @@
 			children = (
 				AA11001122334455AA110055 /* DockLockerGeometryTests.swift */,
 				D00D4B366E3CF5338182E065 /* NativeTabGroupingTests.swift */,
+				9CE56FCBE8524935B37610CD /* DockClickPreviewStateTests.swift */,
 			);
 			path = DockDoorTests;
 			sourceTree = "<group>";
@@ -705,6 +710,7 @@
 				BBF6C6262C1B4B4500BF1D40 /* StringMatchingUtil.swift */,
 				BB1CBD5C2C1BCA4F003969BC /* Misc Utils.swift */,
 				F098F8107F464776B5C18294427CAECD /* ScriptCommands.swift */,
+				2E2254CF59F94CA8AF5E7401 /* DockClickPreviewState.swift */,
 				AA11001122334455AA110011 /* DockLocker.swift */,
 			);
 			path = Utilities;
@@ -1099,6 +1105,7 @@
 			files = (
 				AA11001122334455AA110066 /* DockLockerGeometryTests.swift in Sources */,
 				555110B7F7B99C7BD510DBC7 /* NativeTabGroupingTests.swift in Sources */,
+				ABF759DEF7844CE59BF6A99F /* DockClickPreviewStateTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1171,6 +1178,7 @@
 				BB3968022C2A6CC2004F1AB6 /* Marquee.swift in Sources */,
 				BBB023AD2EDCCB9100317CF4 /* WindowInfo.swift in Sources */,
 				F1F4D845DBF89A1AA7266945 /* NativeTabGrouping.swift in Sources */,
+				3E28C72FB23E4EBDA937C116 /* DockClickPreviewState.swift in Sources */,
 				BB709B3D2EF21E9E007809A2 /* VolumeScrollModifier.swift in Sources */,
 				BB0440602C77AD2C009F1D33 /* CodableColor.swift in Sources */,
 				BB52EDF02C5BEFE3006A64A4 /* HiddenModifier.swift in Sources */,

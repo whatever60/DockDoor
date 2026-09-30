@@ -28,7 +28,8 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let state = UpdaterState()
         updaterState = state
 
-        let anUpdaterController = SPUStandardUpdaterController(startingUpdater: true, updaterDelegate: state, userDriverDelegate: nil)
+        let isCustomBuild = Bundle.main.object(forInfoDictionaryKey: "DockDoorCustomBuild") as? Bool ?? false
+        let anUpdaterController = SPUStandardUpdaterController(startingUpdater: !isCustomBuild, updaterDelegate: state, userDriverDelegate: nil)
         updaterController = anUpdaterController
 
         state.updater = anUpdaterController.updater
@@ -84,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 dockLocker = DockLocker()
             }
 
-            if updater.automaticallyChecksForUpdates {
+            if Bundle.main.object(forInfoDictionaryKey: "DockDoorCustomBuild") as? Bool != true, updater.automaticallyChecksForUpdates {
                 print("AppDelegate: Automatic updates enabled, checking in background.")
                 updater.checkForUpdatesInBackground()
             }

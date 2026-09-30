@@ -1,4 +1,5 @@
 import AppKit
+import Defaults
 import Foundation
 
 // MARK: - Shared Command Logic
@@ -111,16 +112,57 @@ enum DockDoorCommands {
         type: AppIdentifierType,
         position: NSPoint?,
         dockItemFrame: CGRect? = nil,
-        useDelay: Bool = false
+        useDelay: Bool = false,
+        persistent: Bool = false
     ) {
         guard let app = findApp(identifier: identifier, type: type) else { return }
 
         Task { @MainActor in
             guard let coordinator = SharedPreviewWindowCoordinator.activeInstance else { return }
-            guard let windows = try? await WindowUtil.getActiveWindows(of: app, context: .dockPreview) else { return }
+            let height = NSScreen.screens.first?.frame.maxY ?? 0
+            let cocoaDockFrame = dockItemFrame.map { DockClickPreviewState.cocoaFrame(fromQuartz: $0, primaryScreenHeight: height) }
+            let session: UUID?
+            if persistent {
+                guard let token = coordinator.beginClickPreview(bundleIdentifier: app.bundleIdentifier ?? String(app.processIdentifier), dockItemFrame: cocoaDockFrame) else { return }
+                session = token
+            } else {
+                guard !coordinator.isClickPreviewPersistent else { return }
+                session = nil
+            }
+            let requestRevision = coordinator.previewDisplayRevision
 
-            let mouseLocation = position ?? NSEvent.mouseLocation
-            let screen = NSScreen.screenFromQuartzPoint(mouseLocation)
+            var windows: [WindowInfo] = []
+            do {
+                let apps = Defaults[.groupAppInstancesInDock] && app.bundleIdentifier != nil
+                    ? NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleIdentifier!) : [app]
+                for instance in apps {
+                    try await windows.append(contentsOf: WindowUtil.getActiveWindows(of: instance, context: .dockPreview))
+                }
+            } catch {
+                if let session, coordinator.matchesClickPreviewSession(session) { coordinator.hideWindow() }
+                return
+            }
+            guard coordinator.previewDisplayRevision == requestRevision else { return }
+            if let session {
+                guard coordinator.matchesClickPreviewSession(session) else { return }
+                guard !windows.isEmpty else {
+                    coordinator.hideWindow()
+                    return
+                }
+            }
+
+            let mouseLocation = position.map { DockClickPreviewState.cocoaPoint(fromQuartz: $0, primaryScreenHeight: height) } ?? NSEvent.mouseLocation
+            let screen = NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main ?? NSScreen.screens.first!
+            var onWindowTap: (() -> Void)?
+            if let session {
+                coordinator.currentlyDisplayedPID = app.processIdentifier
+                onWindowTap = { [weak coordinator] in
+                    DispatchQueue.main.async {
+                        guard let coordinator, coordinator.matchesClickPreviewSession(session) else { return }
+                        coordinator.hideWindow()
+                    }
+                }
+            }
 
             coordinator.showWindow(
                 appName: app.localizedName ?? "Unknown",
@@ -129,11 +171,12 @@ enum DockDoorCommands {
                 mouseScreen: screen,
                 dockItemElement: nil,
                 overrideDelay: dockItemFrame != nil ? !useDelay : true,
-                onWindowTap: nil,
+                onWindowTap: onWindowTap,
                 bundleIdentifier: app.bundleIdentifier,
                 bypassDockMouseValidation: true,
-                dockPositionOverride: .cli,
-                dockItemFrameOverride: dockItemFrame
+                dockPositionOverride: persistent ? DockUtils.getDockPosition() : .cli,
+                dockItemFrameOverride: cocoaDockFrame,
+                clickPreviewSessionID: session
             )
         }
     }
@@ -143,7 +186,7 @@ enum DockDoorCommands {
             guard let coordinator = SharedPreviewWindowCoordinator.activeInstance else { return }
 
             // Don't hide if mouse is within the preview window - user is interacting with it
-            if coordinator.mouseIsWithinPreviewWindow {
+            if coordinator.mouseIsWithinPreviewWindow, !coordinator.isClickPreviewPersistent {
                 return
             }
 
@@ -183,6 +226,22 @@ enum DockDoorCommands {
     }
 
     // MARK: - Query Commands
+
+    static func getPreviewState() throws -> String {
+        guard let coordinator = SharedPreviewWindowCoordinator.activeInstance else {
+            throw CommandError.coordinatorNotAvailable
+        }
+        return try encodeJSON(JSONDictionary([
+            "visible": coordinator.isVisible,
+            "persistent": coordinator.isClickPreviewPersistent,
+            "ownerBundleId": coordinator.clickPreviewBundleIdentifier ?? "",
+            "dismissalTapEnabled": coordinator.isClickPreviewDismissalEnabled,
+            "windowCount": coordinator.windowSwitcherCoordinator.windows.count,
+            "forkCommit": Bundle.main.object(forInfoDictionaryKey: "DockDoorForkCommit") as? String ?? "",
+            "frame": ["x": Double(coordinator.frame.minX), "y": Double(coordinator.frame.minY),
+                      "width": Double(coordinator.frame.width), "height": Double(coordinator.frame.height)],
+        ]))
+    }
 
     private static let jsonEncoder: JSONEncoder = {
         let encoder = JSONEncoder()
@@ -441,15 +500,28 @@ class ShowPreviewCommand: NSScriptCommand {
         }
 
         let useDelay = evaluatedArguments?["withDelay"] as? Bool ?? false
+        let persistent = evaluatedArguments?["persistent"] as? Bool ?? false
 
         DockDoorCommands.showPreviewAsync(
             identifier: identifier,
             type: identifierType,
             position: position,
             dockItemFrame: dockItemFrame,
-            useDelay: useDelay
+            useDelay: useDelay,
+            persistent: persistent
         )
         return "ok"
+    }
+}
+
+@objc(GetPreviewStateCommand)
+class GetPreviewStateCommand: NSScriptCommand {
+    override func performDefaultImplementation() -> Any? {
+        do {
+            return try DockDoorCommands.getPreviewState()
+        } catch {
+            return "error: \(error.localizedDescription)"
+        }
     }
 }
 

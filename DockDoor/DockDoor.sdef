@@ -18,10 +18,10 @@
             <parameter name="by" code="bytp" type="text" optional="yes" description="How to identify the app: 'name', 'bundle', or 'pid'. Defaults to 'name'.">
                 <cocoa key="identifierType"/>
             </parameter>
-            <parameter name="at" code="atps" type="text" optional="yes" description="Position as 'x,y' coordinates.">
+            <parameter name="at" code="atps" type="text" optional="yes" description="Position as 'x,y' in Quartz screen coordinates (origin at the top left of the primary display).">
                 <cocoa key="position"/>
             </parameter>
-            <parameter name="dock frame" code="dkfr" type="text" optional="yes" description="Dock item frame as 'x,y,width,height' for positioning relative to a dock icon.">
+            <parameter name="dock frame" code="dkfr" type="text" optional="yes" description="Dock item frame as 'x,y,width,height' in Quartz screen coordinates for positioning relative to a dock icon.">
                 <cocoa key="dockFrame"/>
             </parameter>
             <parameter name="dock position" code="dkpo" type="text" optional="yes" description="Dock position: 'bottom', 'left', or 'right'. Defaults to actual dock position.">
@@ -29,6 +29,9 @@
             </parameter>
             <parameter name="with delay" code="wdly" type="boolean" optional="yes" description="Use the hover delay before showing. Defaults to false.">
                 <cocoa key="withDelay"/>
+            </parameter>
+            <parameter name="persistent" code="pndr" type="boolean" optional="yes" description="Keep the thumbnails open after a Dock click until selection, an outside click, Escape, or another click on the same icon. Defaults to false.">
+                <cocoa key="persistent"/>
             </parameter>
             <result type="text" description="Success or error message."/>
         </command>
@@ -44,6 +47,11 @@
         </command>
 
         <!-- Query Commands -->
+
+        <command name="get preview state" code="DKDRgpst" description="Get preview visibility, click persistence, owner, dismissal monitor, window count and custom build revision.">
+            <cocoa class="GetPreviewStateCommand"/>
+            <result type="text" description="JSON object describing the current preview state."/>
+        </command>
 
         <command name="list windows" code="DKDRlswn" description="List all windows or windows for a specific application.">
             <cocoa class="ListWindowsCommand"/>

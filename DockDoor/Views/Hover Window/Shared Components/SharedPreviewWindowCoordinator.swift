@@ -25,6 +25,18 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     private var onWindowTap: (() -> Void)?
     private var fullPreviewWindow: NSPanel?
     private var pendingShowWorkItem: DispatchWorkItem?
+    private var clickPreviewState = DockClickPreviewState()
+    private var clickPreviewEventTap: CFMachPort?
+    private var clickPreviewRunLoopSource: CFRunLoopSource?
+    private var clickPreviewMenuObservers: [NSObjectProtocol] = []
+    private var clickPreviewMenuTrackingDepth = 0
+
+    var isClickPreviewPersistent: Bool { clickPreviewState.isPersistent }
+    var clickPreviewBundleIdentifier: String? { clickPreviewState.bundleIdentifier }
+    var previewDisplayRevision: UUID { clickPreviewState.revision }
+    var isClickPreviewDismissalEnabled: Bool {
+        clickPreviewEventTap.map { CGEvent.tapIsEnabled(tap: $0) } ?? false
+    }
 
     var windowSize: CGSize = getWindowSize()
 
@@ -51,6 +63,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
             SharedPreviewWindowCoordinator.activeInstance = nil
         }
         dockManager.cleanup()
+        removeClickPreviewMonitoring()
     }
 
     private func setupWindow() {
@@ -129,7 +142,111 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         pendingShowWorkItem = nil
     }
 
+    func beginClickPreview(bundleIdentifier: String, dockItemFrame: CGRect?) -> UUID? {
+        if clickPreviewState.bundleIdentifier == bundleIdentifier {
+            hideWindow()
+            return nil
+        }
+        hideWindow()
+        guard let session = clickPreviewState.begin(bundleIdentifier: bundleIdentifier, dockItemFrame: dockItemFrame) else { return nil }
+        guard installClickPreviewMonitoring() else {
+            DebugLogger.log("ClickPreview", details: "Unable to monitor dismissal; Accessibility permission is required")
+            hideWindow()
+            return nil
+        }
+        return session
+    }
+
+    func matchesClickPreviewSession(_ sessionID: UUID) -> Bool {
+        clickPreviewState.matches(sessionID)
+    }
+
+    private func dismissClickPreview() {
+        clickPreviewState.dismiss()
+        removeClickPreviewMonitoring()
+    }
+
+    private func installClickPreviewMonitoring() -> Bool {
+        let eventMask: CGEventMask = (1 << CGEventType.leftMouseDown.rawValue) |
+            (1 << CGEventType.rightMouseDown.rawValue) |
+            (1 << CGEventType.otherMouseDown.rawValue) |
+            (1 << CGEventType.keyDown.rawValue)
+        // Observe before the existing Dock click tap can swallow a mouse-down.
+        guard let tap = CGEvent.tapCreate(
+            tap: .cgSessionEventTap,
+            place: .headInsertEventTap,
+            options: .defaultTap,
+            eventsOfInterest: eventMask,
+            callback: { _, type, event, refcon in
+                guard let refcon else { return Unmanaged.passUnretained(event) }
+                let coordinator = Unmanaged<SharedPreviewWindowCoordinator>.fromOpaque(refcon).takeUnretainedValue()
+                return coordinator.handleClickPreviewEvent(type: type, event: event)
+            },
+            userInfo: Unmanaged.passUnretained(self).toOpaque()
+        ), let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0) else { return false }
+
+        clickPreviewEventTap = tap
+        clickPreviewRunLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        let center = NotificationCenter.default
+        clickPreviewMenuObservers = [
+            center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.clickPreviewMenuTrackingDepth += 1
+            },
+            center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                clickPreviewMenuTrackingDepth = max(0, clickPreviewMenuTrackingDepth - 1)
+            },
+        ]
+        return true
+    }
+
+    private func removeClickPreviewMonitoring() {
+        if let tap = clickPreviewEventTap {
+            CGEvent.tapEnable(tap: tap, enable: false)
+            if let source = clickPreviewRunLoopSource {
+                CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes)
+            }
+            CFMachPortInvalidate(tap)
+        }
+        clickPreviewEventTap = nil
+        clickPreviewRunLoopSource = nil
+        clickPreviewMenuObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        clickPreviewMenuObservers = []
+        clickPreviewMenuTrackingDepth = 0
+    }
+
+    private func handleClickPreviewEvent(type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap = clickPreviewEventTap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return Unmanaged.passUnretained(event)
+        }
+        guard let session = clickPreviewState.sessionID, clickPreviewMenuTrackingDepth == 0 else {
+            return Unmanaged.passUnretained(event)
+        }
+        let isEscape = type == .keyDown && event.getIntegerValueField(.keyboardEventKeycode) == 53 &&
+            event.flags.intersection([.maskCommand, .maskAlternate, .maskControl]).isEmpty
+        let shouldDismiss: Bool
+        if type == .keyDown {
+            shouldDismiss = isEscape
+        } else {
+            let point = DockClickPreviewState.cocoaPoint(fromQuartz: event.location, primaryScreenHeight: NSScreen.screens.first?.frame.maxY ?? 0)
+            shouldDismiss = clickPreviewState.shouldDismiss(forMouseDownAt: point, previewFrame: isVisible ? frame : nil)
+        }
+        if shouldDismiss {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, clickPreviewState.matches(session) else { return }
+                hideWindow()
+            }
+        }
+        return isEscape ? nil : Unmanaged.passUnretained(event)
+    }
+
     func hideWindow(cancelPendingShow shouldCancelPendingShow: Bool = true) {
+        if shouldCancelPendingShow || isClickPreviewPersistent {
+            dismissClickPreview()
+        }
         if shouldCancelPendingShow {
             cancelPendingShow()
         }
@@ -883,12 +1000,14 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         mouseScreen: NSScreen? = nil,
         dockItemElement: AXUIElement?
     ) {
+        guard !isClickPreviewPersistent else { return }
+        let displayRevision = clickPreviewState.revision
         let shouldSkipDelay = Defaults[.useDelayOnlyForInitialOpen] && isVisible
         let delay = shouldSkipDelay ? 0 : Defaults[.hoverWindowOpenDelay]
 
         pendingShowWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self] in
-            guard let self else { return }
+            guard let self, clickPreviewState.acceptsDisplay(sessionID: nil, revision: displayRevision) else { return }
 
             if let dockItemElement {
                 guard let currentDockItem = DockObserver.activeInstance?.getHoveredDockItemElement(),
@@ -897,7 +1016,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
             }
 
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, clickPreviewState.acceptsDisplay(sessionID: nil, revision: displayRevision) else { return }
 
                 let screen = mouseScreen ?? NSScreen.main!
                 let activeDockPosition = DockUtils.getDockPosition()
@@ -954,8 +1073,13 @@ final class SharedPreviewWindowCoordinator: NSPanel {
                     onWindowTap: (() -> Void)? = nil, bundleIdentifier: String? = nil,
                     bypassDockMouseValidation: Bool = false,
                     dockPositionOverride: DockPosition? = nil, initialIndex: Int? = nil,
-                    dockItemFrameOverride: CGRect? = nil)
+                    dockItemFrameOverride: CGRect? = nil, clickPreviewSessionID: UUID? = nil)
     {
+        if centeredHoverWindowState != nil, isClickPreviewPersistent {
+            dismissClickPreview()
+        }
+        let displayRevision = clickPreviewState.revision
+        guard clickPreviewState.acceptsDisplay(sessionID: clickPreviewSessionID, revision: displayRevision) else { return }
         let renderStartTime = CFAbsoluteTimeGetCurrent()
         DebugLogger.log("PreviewRender", details: "showWindow called: \(windows.count) windows for \(appName)")
 
@@ -964,7 +1088,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
 
         pendingShowWorkItem?.cancel()
         let workItem = DispatchWorkItem { [weak self, renderStartTime] in
-            guard let self else { return }
+            guard let self, clickPreviewState.acceptsDisplay(sessionID: clickPreviewSessionID, revision: displayRevision) else { return }
 
             // Check if mouse entered the preview window and we're trying to show a different app
             if mouseIsWithinPreviewWindow,
@@ -997,7 +1121,8 @@ final class SharedPreviewWindowCoordinator: NSPanel {
             }
 
             Task { @MainActor [weak self] in
-                self?.performDisplay(appName: appName, windows: windows, mouseLocation: mouseLocation, mouseScreen: mouseScreen, dockItemElement: dockItemElement, centeredHoverWindowState: centeredHoverWindowState, onWindowTap: onWindowTap, bundleIdentifier: bundleIdentifier, dockPositionOverride: dockPositionOverride, initialIndex: initialIndex, dockItemFrameOverride: dockItemFrameOverride, renderStartTime: renderStartTime)
+                guard let self, clickPreviewState.acceptsDisplay(sessionID: clickPreviewSessionID, revision: displayRevision) else { return }
+                performDisplay(appName: appName, windows: windows, mouseLocation: mouseLocation, mouseScreen: mouseScreen, dockItemElement: dockItemElement, centeredHoverWindowState: centeredHoverWindowState, onWindowTap: onWindowTap, bundleIdentifier: bundleIdentifier, dockPositionOverride: dockPositionOverride, initialIndex: initialIndex, dockItemFrameOverride: dockItemFrameOverride, renderStartTime: renderStartTime)
             }
         }
         pendingShowWorkItem = workItem

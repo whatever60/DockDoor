@@ -265,6 +265,7 @@ final class DockObserver {
     }
 
     @MainActor func processSelectedDockItemChanged() {
+        guard !previewCoordinator.isClickPreviewPersistent else { return }
         let currentMouseLocation = DockObserver.getMousePosition()
 
         guard !previewCoordinator.windowSwitcherCoordinator.windowSwitcherActive else {

@@ -113,6 +113,10 @@ class WindowManipulationObservers {
             if coordinator.windows.isEmpty {
                 previewCoordinator.hideWindow()
             }
+        } else if previewCoordinator.isClickPreviewPersistent {
+            if previewCoordinator.clickPreviewBundleIdentifier == app.bundleIdentifier {
+                previewCoordinator.hideWindow()
+            }
         } else if !Defaults[.keepPreviewOnAppTerminate] {
             previewCoordinator.hideWindow()
         }

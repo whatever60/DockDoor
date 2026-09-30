@@ -4,7 +4,9 @@ macOS dock enhancement app — window previews on dock hover, Alt+Tab window swi
 
 ## Build
 
-Open `DockDoor.xcodeproj` in Xcode and build (Cmd+R). No CLI build commands — this is an Xcode-managed project, not SPM.
+Open `DockDoor.xcodeproj` in Xcode and build (Cmd+R). This is an Xcode-managed project, not SPM.
+
+For this personal fork, the owner explicitly authorized GitHub Actions builds without a local Xcode install. `.github/workflows/windows-build.yml` uses `xcodebuild` to test and package the custom app. Keep CLI project builds in that workflow; do not install Xcode on the owner's Mac.
 
 ## Adding Files to the Project
 
