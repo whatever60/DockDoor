@@ -14,6 +14,8 @@ tell application "DockDoor" to show preview "com.microsoft.edgemac" by "bundle" 
 
 The dismissal event tap never consumes mouse clicks. The existing Hammerspoon Dock module still owns paired short-click down/up events and native drag/hold handoff, as well as single-window minimize/restore. Its grouped-click command must include `persistent true`. No gesture or keyboard configuration is changed by this fork.
 
+The tested companion module is `Integration/winmac-dock.lua`. Install it as `~/.hammerspoon/winmac/dock.lua` only after this custom app is running with its existing permissions. It dismisses the flyout when a native drag/hold takes over or the app's group shrinks to one/zero windows. `Integration/dock-regression-tests.lua` runs 44 mocked event-stream cases in Hammerspoon's Lua VM; it posts no real input. All companion code in this fork is covered by the repository's GPL license.
+
 ```applescript
 tell application "DockDoor" to get preview state
 ```
