@@ -294,7 +294,10 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         hostingView.layoutSubtreeIfNeeded()
         let fittingSize = hostingView.fittingSize
 
-        let screen = NSScreen.screenFromQuartzPoint(NSEvent.mouseLocation)
+        let ownerScreen = clickPreviewState.dockItemFrame.flatMap { icon in
+            NSScreen.screens.first { $0.frame.contains(CGPoint(x: icon.midX, y: icon.midY)) }
+        }
+        let screen = ownerScreen ?? NSScreen.screenFromQuartzPoint(NSEvent.mouseLocation)
         let screenFrame = screen.frame
 
         let newSize = fittingSize

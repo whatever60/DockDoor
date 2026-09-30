@@ -237,6 +237,8 @@ enum DockDoorCommands {
             "persistent": coordinator.isClickPreviewPersistent,
             "ownerBundleId": coordinator.clickPreviewBundleIdentifier ?? "",
             "dismissalTapEnabled": coordinator.isClickPreviewDismissalEnabled,
+            "accessibilityGranted": AXIsProcessTrusted(),
+            "screenRecordingGranted": CGPreflightScreenCaptureAccess(),
             "windowCount": coordinator.windowSwitcherCoordinator.windows.count,
             "forkCommit": Bundle.main.object(forInfoDictionaryKey: "DockDoorForkCommit") as? String ?? "",
             "frame": ["x": Double(coordinator.frame.minX), "y": Double(coordinator.frame.minY),

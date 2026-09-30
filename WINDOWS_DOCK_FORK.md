@@ -18,7 +18,7 @@ The dismissal event tap never consumes mouse clicks. The existing Hammerspoon Do
 tell application "DockDoor" to get preview state
 ```
 
-This read-only JSON reports visibility, persistence, owner, window count, dismissal-tap status and build commit. It contains no preview images or window titles.
+This read-only JSON reports visibility, persistence, owner, window count, dismissal-tap status, macOS permission status and build commit. It contains no preview images or window titles.
 
 ## Build and deployment
 
