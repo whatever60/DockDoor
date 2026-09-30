@@ -6,6 +6,11 @@ struct DockClickPreviewStateTests {
     private let icon = CGRect(x: 400, y: 0, width: 60, height: 60)
     private let preview = CGRect(x: 200, y: 70, width: 500, height: 220)
 
+    private func start(_ state: inout DockClickPreviewState, bundle: String = "browser", frame: CGRect? = nil) throws -> UUID {
+        let token = state.begin(bundleIdentifier: bundle, dockItemFrame: frame ?? icon)
+        return try #require(token)
+    }
+
     @Test func hoverHasNoPersistentSession() {
         let state = DockClickPreviewState()
         #expect(!state.isPersistent)
@@ -16,7 +21,7 @@ struct DockClickPreviewStateTests {
     @Test func clickPinsAndBlocksHoverDisplays() throws {
         var state = DockClickPreviewState()
         let hoverRevision = state.revision
-        let session = try #require(state.begin(bundleIdentifier: "browser", dockItemFrame: icon))
+        let session = try start(&state)
         #expect(state.isPersistent)
         #expect(state.matches(session))
         #expect(state.acceptsDisplay(sessionID: session, revision: state.revision))
@@ -26,9 +31,10 @@ struct DockClickPreviewStateTests {
 
     @Test func repeatedClickTogglesOffIncludingPendingFetch() throws {
         var state = DockClickPreviewState()
-        let session = try #require(state.begin(bundleIdentifier: "browser", dockItemFrame: icon))
+        let session = try start(&state)
         let revision = state.revision
-        #expect(state.begin(bundleIdentifier: "browser", dockItemFrame: icon) == nil)
+        let toggled = state.begin(bundleIdentifier: "browser", dockItemFrame: icon)
+        #expect(toggled == nil)
         #expect(!state.isPersistent)
         #expect(state.bundleIdentifier == nil)
         #expect(state.dockItemFrame == nil)
@@ -38,9 +44,9 @@ struct DockClickPreviewStateTests {
 
     @Test func clickingAnotherGroupInvalidatesOldAsyncResult() throws {
         var state = DockClickPreviewState()
-        let old = try #require(state.begin(bundleIdentifier: "browser", dockItemFrame: icon))
+        let old = try start(&state)
         let revision = state.revision
-        let next = try #require(state.begin(bundleIdentifier: "editor", dockItemFrame: icon.offsetBy(dx: 70, dy: 0)))
+        let next = try start(&state, bundle: "editor", frame: icon.offsetBy(dx: 70, dy: 0))
         #expect(state.bundleIdentifier == "editor")
         #expect(!state.matches(old))
         #expect(state.matches(next))
@@ -49,7 +55,7 @@ struct DockClickPreviewStateTests {
 
     @Test func queuedOutsideDismissalCannotDismissNewSession() throws {
         var state = DockClickPreviewState()
-        let old = try #require(state.begin(bundleIdentifier: "browser", dockItemFrame: icon))
+        let old = try start(&state)
         #expect(state.shouldDismiss(forMouseDownAt: .zero, previewFrame: preview))
         _ = state.begin(bundleIdentifier: "editor", dockItemFrame: nil)
         #expect(!state.matches(old))
@@ -71,6 +77,13 @@ struct DockClickPreviewStateTests {
         state.dismiss()
         #expect(!state.acceptsDisplay(sessionID: nil, revision: oldHoverRevision))
         #expect(state.acceptsDisplay(sessionID: nil, revision: state.revision))
+    }
+
+    @Test func rightClickOnOwnerDismissesForNativeDockMenu() {
+        var state = DockClickPreviewState()
+        _ = state.begin(bundleIdentifier: "browser", dockItemFrame: icon)
+        #expect(state.shouldDismiss(forMouseDownAt: CGPoint(x: 420, y: 20), previewFrame: preview, allowOwnerIcon: false))
+        #expect(!state.shouldDismiss(forMouseDownAt: CGPoint(x: 230, y: 140), previewFrame: preview, allowOwnerIcon: false))
     }
 
     @Test func pendingPreviewWithoutFrameStillClosesOnOutsideClick() {

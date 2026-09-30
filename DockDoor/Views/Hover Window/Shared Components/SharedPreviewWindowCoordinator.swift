@@ -232,7 +232,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
             shouldDismiss = isEscape
         } else {
             let point = DockClickPreviewState.cocoaPoint(fromQuartz: event.location, primaryScreenHeight: NSScreen.screens.first?.frame.maxY ?? 0)
-            shouldDismiss = clickPreviewState.shouldDismiss(forMouseDownAt: point, previewFrame: isVisible ? frame : nil)
+            shouldDismiss = clickPreviewState.shouldDismiss(forMouseDownAt: point, previewFrame: isVisible ? frame : nil, allowOwnerIcon: type == .leftMouseDown)
         }
         if shouldDismiss {
             DispatchQueue.main.async { [weak self] in

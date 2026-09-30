@@ -35,10 +35,10 @@ struct DockClickPreviewState {
         self.revision == revision && self.sessionID == sessionID
     }
 
-    func shouldDismiss(forMouseDownAt point: CGPoint, previewFrame: CGRect?) -> Bool {
+    func shouldDismiss(forMouseDownAt point: CGPoint, previewFrame: CGRect?, allowOwnerIcon: Bool = true) -> Bool {
         guard isPersistent else { return false }
         if let previewFrame, previewFrame.contains(point) { return false }
-        if let dockItemFrame, dockItemFrame.contains(point) { return false }
+        if allowOwnerIcon, let dockItemFrame, dockItemFrame.contains(point) { return false }
         return true
     }
 

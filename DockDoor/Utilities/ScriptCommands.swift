@@ -152,7 +152,8 @@ enum DockDoorCommands {
             }
 
             let mouseLocation = position.map { DockClickPreviewState.cocoaPoint(fromQuartz: $0, primaryScreenHeight: height) } ?? NSEvent.mouseLocation
-            let screen = NSScreen.screens.first { $0.frame.contains(mouseLocation) } ?? NSScreen.main ?? NSScreen.screens.first!
+            let anchor = cocoaDockFrame.map { CGPoint(x: $0.midX, y: $0.midY) } ?? mouseLocation
+            let screen = NSScreen.screens.first { $0.frame.contains(anchor) } ?? NSScreen.main ?? NSScreen.screens.first!
             var onWindowTap: (() -> Void)?
             if let session {
                 coordinator.currentlyDisplayedPID = app.processIdentifier
