@@ -14,13 +14,17 @@ tell application "DockDoor" to show preview "com.microsoft.edgemac" by "bundle" 
 
 The dismissal event tap never consumes mouse clicks. The existing Hammerspoon Dock module still owns paired short-click down/up events and native drag/hold handoff, as well as single-window minimize/restore. Its grouped-click command must include `persistent true`. No gesture or keyboard configuration is changed by this fork.
 
-The tested companion module is `Integration/winmac-dock.lua`. Install it as `~/.hammerspoon/winmac/dock.lua` only after this custom app is running with its existing permissions. It dismisses the flyout when a native drag/hold takes over or the app's group shrinks to one/zero windows. `Integration/dock-regression-tests.lua` runs 44 mocked event-stream cases in Hammerspoon's Lua VM; it posts no real input. All companion code in this fork is covered by the repository's GPL license.
+The tested companion module is `Integration/winmac-dock.lua`. Install it as `~/.hammerspoon/winmac/dock.lua` only after this custom app is running with its existing permissions. It dismisses the flyout when a native drag/hold takes over or the app's group shrinks to one/zero windows. Its DockDoor requests use asynchronous subprocesses, a two-second AppleEvent timeout and a three-second process deadline; stale replies are cancelled on another Dock press or module stop. A hung DockDoor must not block Hammerspoon's gesture/event-tap thread. `Integration/dock-regression-tests.lua` runs 51 mocked event-stream cases in Hammerspoon's Lua VM; it posts no real input. All companion code in this fork is covered by the repository's GPL license.
 
 ```applescript
 tell application "DockDoor" to get preview state
 ```
 
-This read-only JSON reports visibility, persistence, owner, window count, dismissal-tap status, macOS permission status and build commit. It contains no preview images or window titles.
+This read-only JSON reports visibility, persistence, owner, window count, switcher-session state, active-Space membership, opacity, dismissal-tap status, macOS permission status and build commit. It contains no preview images or window titles.
+
+## Cache deadlock recovery
+
+A sampled hang on 2026-10-01 exposed a lock inversion: AX validation held the window-cache lock while requesting main-thread access, while the main-thread Dock hover handler waited for the cache lock. Cache transforms now run outside that lock, retrying against a per-process revision when another writer intervenes. Inserts, removals and metadata-only writes increment the revision. Application side effects occur after the successful commit, not inside a retryable transform. `SpaceWindowCacheManagerTests` covers unblocked reads and preservation of concurrent insertion, removal and metadata changes.
 
 ## Build and deployment
 

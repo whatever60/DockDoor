@@ -7,6 +7,24 @@ local nativeHoldTime = 0.6 -- leave native Dock press-and-hold menus alone
 local replayTag = 0x574D444F -- "WMDO": don't intercept our native-drag replay
 local openTasks = {}
 local running = false
+local pendingScripts = {}
+local requestGeneration = 0
+local logger = nil
+
+local function currentRequest(generation)
+  return running and generation == requestGeneration
+end
+
+local function cancelScripts()
+  requestGeneration = requestGeneration + 1
+  local cancelled = pendingScripts
+  pendingScripts = {}
+  for _, request in pairs(cancelled) do
+    request.done = true
+    if request.timer then request.timer:stop() end
+    if request.task then request.task:terminate() end
+  end
+end
 
 local function axValue(element, name)
   if not element then return nil end
@@ -103,41 +121,66 @@ local function openApplication(bundle, log)
   end
 end
 
-local function appleScript(source)
-  local ok, result, err = hs.osascript.applescript(source)
-  if not ok or (type(result) == "string" and result:match("^error:")) then
-    return nil, tostring(err or result)
+local function appleScript(source, generation, callback)
+  if not currentRequest(generation) then return end
+  local request = { done = false }
+  pendingScripts[request] = request
+  local function finish(result, err)
+    if request.done then return end
+    request.done = true
+    pendingScripts[request] = nil
+    if request.timer then request.timer:stop() end
+    if not currentRequest(generation) then return end
+    local ok, callbackErr = pcall(callback, result, err)
+    if not ok then logger.e("Dock reply: " .. tostring(callbackErr)) end
   end
-  return result
-end
-
-local function dockDoorWindows(bundle)
-  local source = 'tell application "DockDoor" to list windows "' .. bundle .. '" by "bundle"'
-  local result, err = appleScript(source)
-  if not result then return nil, err end
-  local ok, windows = pcall(hs.json.decode, tostring(result))
-  if not ok or type(windows) ~= "table" then return nil, "invalid DockDoor JSON" end
-  local real, seen = {}, {}
-  for _, window in ipairs(windows) do
-    local id = tonumber(window.windowId)
-    -- DockDoor may supply a synthetic windowId=0 for a windowless app.
-    -- It cannot be minimized and must not count as an actual window.
-    if id and id > 0 and not seen[id] and window.bundleId == bundle then
-      seen[id] = true
-      real[#real + 1] = window
+  -- osascript runs off Hammerspoon's UI/event-tap thread. Bound both the
+  -- AppleEvent and the subprocess, even if DockDoor cannot answer at all.
+  local script = "with timeout of 2 seconds\n" .. source .. "\nend timeout"
+  request.task = hs.task.new("/usr/bin/osascript", function(code, output, err)
+    local result = (output or ""):gsub("%s+$", "")
+    if code ~= 0 or result:match("^error:") then
+      finish(nil, tostring(err ~= "" and err or result))
+    else
+      finish(result)
     end
+  end, { "-e", script })
+  request.timer = hs.timer.doAfter(3, function()
+    finish(nil, "DockDoor reply timed out")
+    if request.task then request.task:terminate() end
+  end)
+  if not request.task or not request.task:start() then
+    finish(nil, "could not start DockDoor request")
   end
-  return real
 end
 
-local function dockDoorWindowAction(verb, id)
+local function dockDoorWindows(bundle, generation, callback)
+  local source = 'tell application "DockDoor" to list windows "' .. bundle .. '" by "bundle"'
+  appleScript(source, generation, function(result, err)
+    if not result then callback(nil, err); return end
+    local ok, windows = pcall(hs.json.decode, result)
+    if not ok or type(windows) ~= "table" then callback(nil, "invalid DockDoor JSON"); return end
+    local real, seen = {}, {}
+    for _, window in ipairs(windows) do
+      local id = tonumber(window.windowId)
+      -- Ignore synthetic windowless entries and duplicate/foreign windows.
+      if id and id > 0 and not seen[id] and window.bundleId == bundle then
+        seen[id] = true
+        real[#real + 1] = window
+      end
+    end
+    callback(real)
+  end)
+end
+
+local function dockDoorWindowAction(verb, id, generation, callback)
   local numericId = tonumber(id)
-  if not numericId then return nil, "invalid window ID" end
-  return appleScript('tell application "DockDoor" to ' .. verb ..
-    ' window "' .. tostring(math.floor(numericId)) .. '"')
+  if not numericId then callback(nil, "invalid window ID"); return end
+  appleScript('tell application "DockDoor" to ' .. verb ..
+    ' window "' .. tostring(math.floor(numericId)) .. '"', generation, callback)
 end
 
-local function showPreview(item)
+local function showPreview(item, generation, callback)
   local script = 'tell application "DockDoor" to show preview "' ..
     item.bundle .. '" by "bundle" persistent true'
   local frame = item.frame
@@ -146,46 +189,51 @@ local function showPreview(item)
       math.floor(frame.y), math.floor(frame.w), math.floor(frame.h))
     script = script .. ' dock frame "' .. coords .. '"'
   end
-  return appleScript(script)
+  appleScript(script, generation, callback)
 end
 
-local function handleClick(item, activeBundle, activeWindowID, log)
-  local windows, err = dockDoorWindows(item.bundle)
-  if not windows then
-    log.w("DockDoor query failed: " .. tostring(err))
-    openApplication(item.bundle, log)
-    return
-  end
-  if #windows > 1 then
-    local shown, showErr = showPreview(item)
-    if not shown then log.w("DockDoor preview failed: " .. tostring(showErr)) end
-    return
-  end
-  appleScript('tell application "DockDoor" to hide preview')
-  if #windows == 0 then
-    openApplication(item.bundle, log)
-    return
-  end
+local function handleClick(item, activeBundle, activeWindowID, log, generation)
+  dockDoorWindows(item.bundle, generation, function(windows, err)
+    if not windows then
+      log.w("DockDoor query failed: " .. tostring(err))
+      openApplication(item.bundle, log)
+      return
+    end
+    if #windows > 1 then
+      showPreview(item, generation, function(shown, showErr)
+        if not shown then log.w("DockDoor preview failed: " .. tostring(showErr)) end
+      end)
+      return
+    end
+    appleScript('tell application "DockDoor" to hide preview', generation, function(hidden, hideErr)
+      if not hidden then
+        log.w("DockDoor dismiss failed: " .. tostring(hideErr))
+        openApplication(item.bundle, log)
+        return
+      end
+      if #windows == 0 then openApplication(item.bundle, log); return end
 
-  local window = windows[1]
-  local id = window.windowId
-  local verb
-  if activeBundle == item.bundle and activeWindowID == tonumber(id) and
-     not window.isMinimized and not window.isHidden then
-    verb = "minimize"
-  elseif window.isMinimized then
-    verb = "minimize" -- restoring also unhides and focuses the app
-  elseif window.isHidden then
-    verb = "hide" -- DockDoor toggles hidden off and focuses the window
-  else
-    verb = "focus"
-  end
-
-  local done, actionErr = dockDoorWindowAction(verb, id)
-  if not done then
-    log.w("DockDoor " .. verb .. " failed: " .. tostring(actionErr))
-    openApplication(item.bundle, log)
-  end
+      local window = windows[1]
+      local id = window.windowId
+      local verb
+      if activeBundle == item.bundle and activeWindowID == tonumber(id) and
+         not window.isMinimized and not window.isHidden then
+        verb = "minimize"
+      elseif window.isMinimized then
+        verb = "minimize" -- restoring also unhides and focuses the app
+      elseif window.isHidden then
+        verb = "hide" -- DockDoor toggles hidden off and focuses the window
+      else
+        verb = "focus"
+      end
+      dockDoorWindowAction(verb, id, generation, function(done, actionErr)
+        if not done then
+          log.w("DockDoor " .. verb .. " failed: " .. tostring(actionErr))
+          openApplication(item.bundle, log)
+        end
+      end)
+    end)
+  end)
 end
 
 local function cancelHold(held)
@@ -201,8 +249,9 @@ local function nativePress(held)
   held.native = true
   -- A native hold menu or reorder drag supersedes a clicked thumbnail flyout.
   -- Keep AppleScript out of the physical event-tap callback itself.
+  local generation = requestGeneration
   hs.timer.doAfter(0, function()
-    if running then appleScript('tell application "DockDoor" to hide preview') end
+    appleScript('tell application "DockDoor" to hide preview', generation, function() end)
   end)
   return held.down:copy():setProperty(
     hs.eventtap.event.properties.eventSourceUserData, replayTag)
@@ -226,6 +275,7 @@ local function onMouse(event, log)
     if dockMenuIsOpen() then return false end
     local item = dockItemAt(point)
     if item then
+      cancelScripts() -- stale replies must not act after another Dock press
       local gestures = winmacModules and winmacModules.gestures
       if gestures and gestures.cancelSecondaryTap then gestures.cancelSecondaryTap() end
       local active = hs.application.frontmostApplication()
@@ -281,9 +331,10 @@ local function onMouse(event, log)
   local releasedItem = dockItemAt(point)
   if not releasedItem or releasedItem.bundle ~= held.item.bundle then return true end
 
+  local generation = requestGeneration
   hs.timer.doAfter(0, function()
-    if not running then return end
-    local ok, err = pcall(handleClick, releasedItem, held.activeBundle, held.activeWindowID, log)
+    if not currentRequest(generation) then return end
+    local ok, err = pcall(handleClick, releasedItem, held.activeBundle, held.activeWindowID, log, generation)
     if not ok then log.e("Dock click: " .. tostring(err)) end
   end)
   return true -- replace native Dock activation, which chooses a window for us
@@ -291,6 +342,7 @@ end
 
 function M.start(log)
   M.stop()
+  logger = log
   running = true
   local tap = hs.eventtap.new({
     hs.eventtap.event.types.leftMouseDown,
@@ -313,6 +365,7 @@ end
 
 function M.stop()
   running = false
+  cancelScripts()
   cancelHold(press)
   press = nil
   if M.tap then M.tap:stop() end

@@ -10,6 +10,7 @@ local function harness(path)
     windows = { { windowId = 42, bundleId = bundle, isMinimized = false, isHidden = false } },
     calls = {}, timers = {}, warnings = {}, types = {}, itemBundle = bundle,
     nativeEvents = {}, nativeDown = false, orphanUps = 0, mouseLeft = false,
+    pendingReplies = {}, scriptRequests = {}, terminatedTasks = 0,
   }
   local function record(kind, value) s.calls[#s.calls + 1] = { kind, value } end
   local function eventObject(kind, x, y, flags, properties)
@@ -59,7 +60,8 @@ local function harness(path)
       if point.x >= 100 and point.x < 150 and point.y >= 930 and point.y < 980 then return item end
     end,
   }
-  local fake = {
+  local fake
+  fake = {
     axuielement = { applicationElement = function() return dock end },
     application = {
       infoForBundlePath = function() return { CFBundleIdentifier = s.itemBundle } end,
@@ -87,31 +89,53 @@ local function harness(path)
       if s.badJSON then error("invalid JSON") end
       return s.windows
     end },
-    osascript = { applescript = function(source)
-      if source:find("list windows", 1, true) then
-        if s.queryFails then return false, nil, "query failed" end
-        return true, "test-json"
-      end
-      if source:find("hide preview", 1, true) then
-        s.previewDismissals = (s.previewDismissals or 0) + 1
-        return true, "ok"
-      end
-      if source:find("show preview", 1, true) then
-        s.previewCommand = source
-        record("preview", bundle)
-      else
-        local verb, id = source:match('to (%w+) window "(%d+)"')
-        assert(verb and id, "unexpected command: " .. source)
-        record(verb, tonumber(id))
-      end
-      return true, "ok"
+    osascript = { applescript = function()
+      error("synchronous AppleScript blocks the gesture/event-tap thread")
     end },
-    task = { new = function(_, callback, args)
-      local task = { start = function()
-        record("open", args[2])
-        callback(0, "", "")
+    task = { new = function(path, callback, args)
+      if s.taskCreationFails and path == "/usr/bin/osascript" then return nil end
+      local task = { terminated = false }
+      function task:terminate()
+        self.terminated = true; s.terminatedTasks = s.terminatedTasks + 1
+      end
+      local source = args[2]
+      local function complete(forceLateReply)
+        if task.terminated and not forceLateReply then return end
+        if path == "/usr/bin/open" then callback(0, "", ""); return end
+        if source:find("list windows", 1, true) then
+          if s.queryFails then callback(1, "", "query failed")
+          else callback(0, "test-json\n", "") end
+          return
+        end
+        if source:find("hide preview", 1, true) then
+          s.previewDismissals = (s.previewDismissals or 0) + 1
+        elseif source:find("show preview", 1, true) then
+          s.previewCommand = source
+          record("preview", bundle)
+        else
+          local verb, id = source:match('to (%w+) window "(%d+)"')
+          assert(verb and id, "unexpected command: " .. source)
+          record(verb, tonumber(id))
+        end
+        callback(0, "ok\n", "")
+      end
+      function task:start()
+        if path == "/usr/bin/open" then
+          record("open", args[2])
+        else
+          assert(path == "/usr/bin/osascript", "unexpected executable")
+          assert(args[1] == "-e", "script must be passed directly, not through a shell")
+          assert(source:find("with timeout of 2 seconds", 1, true), "AppleEvent has no timeout")
+          s.scriptRequests[#s.scriptRequests + 1] = source
+          if s.taskStartFails then return false end
+          if s.stallQuery and source:find("list windows", 1, true) then
+            s.pendingReplies[#s.pendingReplies + 1] = complete
+            return true
+          end
+        end
+        fake.timer.doAfter(s.replyDelay or 0, complete)
         return true
-      end }
+      end
       return task
     end },
     eventtap = { event = { types = types, properties = { eventSourceUserData = userData } },
@@ -147,13 +171,20 @@ local function harness(path)
     return s.dispatch(eventObject(kind, x, y, flags))
   end
   function s.flush()
-    local pending = s.timers
-    s.timers = {}
-    for _, timer in ipairs(pending) do
-      if not timer.cancelled then
-        if timer.due <= s.time then timer.fn() else s.timers[#s.timers + 1] = timer end
+    -- Drain callbacks queued by prior callbacks too, just like successive
+    -- main-run-loop turns, without advancing to future timeout timers.
+    for _ = 1, 100 do
+      local pending, ran = s.timers, false
+      s.timers = {}
+      for _, timer in ipairs(pending) do
+        if not timer.cancelled then
+          if timer.due <= s.time then timer.fn(); ran = true
+          else s.timers[#s.timers + 1] = timer end
+        end
       end
+      if not ran then return end
     end
+    error("timer loop did not quiesce")
   end
   function s.advance(seconds)
     s.time = s.time + seconds; s.flush()
@@ -377,6 +408,45 @@ function T.run(path)
   end)
   case("windowless app reopen dismisses a stale clicked flyout", function(s)
     s.windows = {}; s.click(); s.expect("open", bundle)
+    assert(s.previewDismissals == 1)
+  end)
+  case("stalled DockDoor reply never blocks the event tap", function(s)
+    s.stallQuery = true; s.click(); s.expect(nil, nil, 0)
+    assert(not s.event(types.leftMouseDown, 125, 200))
+    assert(not s.event(types.leftMouseUp, 125, 200))
+    s.advance(3.1); s.expect("open", bundle)
+    assert(#s.warnings == 1); assert(s.terminatedTasks == 1)
+  end)
+  case("late reply after deadline cannot act a second time", function(s)
+    s.stallQuery = true; s.click(); s.advance(3.1)
+    s.pendingReplies[1](true); s.flush(); s.expect("open", bundle)
+    assert(#s.scriptRequests == 1, "late reply dispatched a window action")
+  end)
+  case("stop terminates an outstanding reply and ignores its callback", function(s)
+    s.stallQuery = true; s.click(); s.module.stop()
+    s.pendingReplies[1](true); s.advance(4); s.expect(nil, nil, 0)
+    assert(s.terminatedTasks == 1); assert(#s.warnings == 0)
+  end)
+  case("another Dock press cancels a stale group response", function(s)
+    s.stallQuery = true; s.click()
+    s.windows[2] = { windowId = 43, bundleId = bundle }
+    s.event(types.leftMouseDown)
+    s.pendingReplies[1](true); s.flush(); s.expect(nil, nil, 0)
+    assert(#s.scriptRequests == 1); assert(s.terminatedTasks == 1)
+  end)
+  case("subprocess start failure fails open without stalling", function(s)
+    s.taskStartFails = true; s.click(); s.expect("open", bundle)
+    s.advance(4); s.expect("open", bundle); assert(#s.warnings == 1)
+  end)
+  case("subprocess creation failure fails open without stalling", function(s)
+    s.taskCreationFails = true; s.click(); s.expect("open", bundle)
+    s.advance(4); s.expect("open", bundle); assert(#s.warnings == 1)
+  end)
+  case("delayed reply remains asynchronous and preserves command order", function(s)
+    s.replyDelay = 0.2; s.click(); s.expect(nil, nil, 0)
+    s.advance(0.2); assert(#s.scriptRequests == 2); s.expect(nil, nil, 0)
+    s.advance(0.2); assert(#s.scriptRequests == 3); s.expect(nil, nil, 0)
+    s.advance(0.2); s.expect("minimize", 42)
     assert(s.previewDismissals == 1)
   end)
   local passed, failures = 0, {}
