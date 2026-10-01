@@ -5,6 +5,7 @@ import SwiftUI
 
 class SpaceWindowCacheManager {
     private var windowCache: [pid_t: Set<WindowInfo>] = [:]
+    private var cacheRevisions: [pid_t: UInt64] = [:]
     private var coordinatorNotificationSuppressionCounts: [pid_t: Int] = [:]
     private let cacheLock = NSLock()
 
@@ -91,6 +92,7 @@ class SpaceWindowCacheManager {
         defer { cacheLock.unlock() }
         let oldWindowSet = windowCache[pid] ?? []
         windowCache[pid] = windowSet
+        cacheRevisions[pid, default: 0] &+= 1
 
         let suppressionDepth = coordinatorNotificationSuppressionCounts[pid] ?? 0
         guard suppressionDepth == 0 else {
@@ -132,13 +134,31 @@ class SpaceWindowCacheManager {
         notifyCoordinatorOfUpdatedWindows(updatedWindows)
     }
 
-    func updateCache(pid: pid_t, update: (inout Set<WindowInfo>) -> Void) {
-        cacheLock.lock()
+    @discardableResult
+    func updateCache(pid: pid_t, update: (inout Set<WindowInfo>) -> Void) -> (before: Set<WindowInfo>, after: Set<WindowInfo>) {
+        var oldWindowSet: Set<WindowInfo>
+        var currentWindowSet: Set<WindowInfo>
+        while true {
+            cacheLock.lock()
+            let revision = cacheRevisions[pid, default: 0]
+            oldWindowSet = windowCache[pid] ?? []
+            cacheLock.unlock()
+
+            // AX validation may synchronously need the main thread. Never hold
+            // the cache lock during it: Dock hover reads this cache on main.
+            currentWindowSet = oldWindowSet
+            update(&currentWindowSet)
+
+            cacheLock.lock()
+            guard cacheRevisions[pid, default: 0] == revision else {
+                cacheLock.unlock()
+                continue
+            }
+            break
+        }
         defer { cacheLock.unlock() }
-        var currentWindowSet = windowCache[pid] ?? []
-        let oldWindowSet = currentWindowSet
-        update(&currentWindowSet)
         windowCache[pid] = currentWindowSet
+        cacheRevisions[pid, default: 0] &+= 1
 
         let suppressionDepth = coordinatorNotificationSuppressionCounts[pid] ?? 0
         guard suppressionDepth == 0 else {
@@ -151,7 +171,7 @@ class SpaceWindowCacheManager {
                     depth: suppressionDepth
                 )
             }
-            return
+            return (oldWindowSet, currentWindowSet)
         }
 
         let oldWindowIDs = Set(oldWindowSet.map(\.id))
@@ -178,6 +198,7 @@ class SpaceWindowCacheManager {
         }
 
         notifyCoordinatorOfUpdatedWindows(updatedWindows)
+        return (oldWindowSet, currentWindowSet)
     }
 
     func removeFromCache(pid: pid_t, windowId: CGWindowID) {
@@ -192,6 +213,7 @@ class SpaceWindowCacheManager {
             } else {
                 windowCache[pid] = windowSet
             }
+            cacheRevisions[pid, default: 0] &+= 1
             let suppressionDepth = coordinatorNotificationSuppressionCounts[pid] ?? 0
             guard suppressionDepth == 0 else {
                 logSuppressedCoordinatorPublish(

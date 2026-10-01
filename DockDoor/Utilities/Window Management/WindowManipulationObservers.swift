@@ -358,24 +358,22 @@ class WindowManipulationObservers {
         let workItem = DispatchWorkItem { [weak self] in
             guard let self else { return }
             DebugLogger.measure("updateWindowCache", details: "App: \(app.localizedName ?? "Unknown"), Notification: \(notification), Validate: \(effectiveValidate)") {
-                WindowUtil.updateWindowCache(for: app) { windowSet in
-                    let previousWindows = windowSet
+                let change = WindowUtil.updateWindowCache(for: app) { windowSet in
                     if effectiveValidate {
                         windowSet = windowSet.filter { WindowUtil.isValidElement($0.axElement) }
                     }
                     stateAdjustment?(&windowSet)
-                    if notification == (kAXUIElementDestroyedNotification as String),
-                       self.didDestroyCachedWindow(
-                           element,
-                           previousWindows: previousWindows
-                       )
-                    {
-                        WindowUtil.quitAppOnLastWindowCloseIfNeeded(
-                            app: app,
-                            previousWindowCount: previousWindows.count,
-                            remainingWindowCount: windowSet.count
-                        )
-                    }
+                }
+                // A transform can retry after a concurrent cache write. Perform
+                // application side effects once, after the successful commit.
+                if notification == (kAXUIElementDestroyedNotification as String),
+                   self.didDestroyCachedWindow(element, previousWindows: change.before)
+                {
+                    WindowUtil.quitAppOnLastWindowCloseIfNeeded(
+                        app: app,
+                        previousWindowCount: change.before.count,
+                        remainingWindowCount: change.after.count
+                    )
                 }
             }
             cacheUpdateWorkItem = nil

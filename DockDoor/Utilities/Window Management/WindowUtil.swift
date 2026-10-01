@@ -334,7 +334,8 @@ extension WindowUtil {
         desktopSpaceWindowCacheManager.writeCache(pid: app.processIdentifier, windowSet: [])
     }
 
-    static func updateWindowCache(for app: NSRunningApplication, update: @escaping (inout Set<WindowInfo>) -> Void) {
+    @discardableResult
+    static func updateWindowCache(for app: NSRunningApplication, update: @escaping (inout Set<WindowInfo>) -> Void) -> (before: Set<WindowInfo>, after: Set<WindowInfo>) {
         desktopSpaceWindowCacheManager.updateCache(pid: app.processIdentifier, update: update)
     }
 

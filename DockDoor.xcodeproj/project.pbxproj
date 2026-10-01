@@ -62,6 +62,7 @@
 		AA11001122334455AA110066 /* DockLockerGeometryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11001122334455AA110055 /* DockLockerGeometryTests.swift */; };
 		555110B7F7B99C7BD510DBC7 /* NativeTabGroupingTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D00D4B366E3CF5338182E065 /* NativeTabGroupingTests.swift */; };
 		ABF759DEF7844CE59BF6A99F /* DockClickPreviewStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CE56FCBE8524935B37610CD /* DockClickPreviewStateTests.swift */; };
+		09AB29EEC28E4C9B95A8215D3586FD7D /* SpaceWindowCacheManagerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFEE1E7E639D465DA74DA4D5C6ABA1F3 /* SpaceWindowCacheManagerTests.swift */; };
 		3E28C72FB23E4EBDA937C116 /* DockClickPreviewState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2E2254CF59F94CA8AF5E7401 /* DockClickPreviewState.swift */; };
 		B376D66B467C4587915220BC80D3B9CB /* ScriptCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = F098F8107F464776B5C18294427CAECD /* ScriptCommands.swift */; };
 		B3C9F20484F14266B941AFB170B66530 /* MediaRemoteService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC298B81953848F481EE849906E0AE77 /* MediaRemoteService.swift */; };
@@ -289,6 +290,7 @@
 		AA11001122334455AA110055 /* DockLockerGeometryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockLockerGeometryTests.swift; sourceTree = "<group>"; };
 		D00D4B366E3CF5338182E065 /* NativeTabGroupingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTabGroupingTests.swift; sourceTree = "<group>"; };
 		9CE56FCBE8524935B37610CD /* DockClickPreviewStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockClickPreviewStateTests.swift; sourceTree = "<group>"; };
+		DFEE1E7E639D465DA74DA4D5C6ABA1F3 /* SpaceWindowCacheManagerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpaceWindowCacheManagerTests.swift; sourceTree = "<group>"; };
 		2E2254CF59F94CA8AF5E7401 /* DockClickPreviewState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DockClickPreviewState.swift; sourceTree = "<group>"; };
 		AA11001122334455AA110100 /* DockDoorTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = DockDoorTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		AC298B81953848F481EE849906E0AE77 /* MediaRemoteService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaRemoteService.swift; sourceTree = "<group>"; };
@@ -594,6 +596,7 @@
 				AA11001122334455AA110055 /* DockLockerGeometryTests.swift */,
 				D00D4B366E3CF5338182E065 /* NativeTabGroupingTests.swift */,
 				9CE56FCBE8524935B37610CD /* DockClickPreviewStateTests.swift */,
+				DFEE1E7E639D465DA74DA4D5C6ABA1F3 /* SpaceWindowCacheManagerTests.swift */,
 			);
 			path = DockDoorTests;
 			sourceTree = "<group>";
@@ -1106,6 +1109,7 @@
 				AA11001122334455AA110066 /* DockLockerGeometryTests.swift in Sources */,
 				555110B7F7B99C7BD510DBC7 /* NativeTabGroupingTests.swift in Sources */,
 				ABF759DEF7844CE59BF6A99F /* DockClickPreviewStateTests.swift in Sources */,
+				09AB29EEC28E4C9B95A8215D3586FD7D /* SpaceWindowCacheManagerTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
