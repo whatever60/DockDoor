@@ -58,9 +58,11 @@ struct DockClickPreviewStateTests {
         #expect(peek.accepts(first))
         peek.begin(second)
         #expect(!peek.accepts(first))
-        #expect(!peek.end(first))
+        let endedStaleRequest = peek.end(first)
+        #expect(!endedStaleRequest)
         #expect(peek.accepts(second))
-        #expect(peek.end(second))
+        let endedCurrentRequest = peek.end(second)
+        #expect(endedCurrentRequest)
         #expect(!peek.accepts(second))
         #expect(click.matches(pinned))
     }
