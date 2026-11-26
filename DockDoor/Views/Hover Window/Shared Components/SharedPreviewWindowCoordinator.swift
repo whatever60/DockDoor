@@ -24,6 +24,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     var mouseIsWithinPreviewWindow: Bool = false
     private var onWindowTap: (() -> Void)?
     private var fullPreviewWindow: NSPanel?
+    private var thumbnailPeekState = DockThumbnailPeekState()
     private var pendingShowWorkItem: DispatchWorkItem?
     private var clickPreviewState = DockClickPreviewState()
     private var displayedHoverBundleIdentifier: String?
@@ -269,11 +270,11 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         // Always restore dock auto-hide state, even if the preview isn't visible.
         dockManager.restoreDockState()
         displayedHoverBundleIdentifier = nil
+        hideFullPreviewWindow()
 
         guard isVisible else { return }
 
         DragPreviewCoordinator.shared.endDragging()
-        hideFullPreviewWindow()
 
         searchWindow?.hideSearch()
 
@@ -512,29 +513,43 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     }
 
     @MainActor
-    private func showFullPreviewWindow(for windowInfo: WindowInfo, on screen: NSScreen) {
+    func prepareDockThumbnailPeek(_ request: UUID) {
+        hideFullPreviewWindow()
+        thumbnailPeekState.begin(request)
+    }
+
+    @MainActor
+    func showDockThumbnailPeek(for windowInfo: WindowInfo, request: UUID) {
+        guard thumbnailPeekState.accepts(request), isVisible, alphaValue > 0,
+              !windowSwitcherCoordinator.windowSwitcherActive, !windowInfo.isWindowlessApp,
+              windowSwitcherCoordinator.windows.contains(where: { $0.id == windowInfo.id && $0.app.processIdentifier == windowInfo.app.processIdentifier }),
+              let primary = NSScreen.screens.first
+        else { return }
+
+        let windowFrame = DockClickPreviewState.cocoaFrame(fromQuartz: windowInfo.frame, primaryScreenHeight: primary.frame.maxY)
+        guard windowFrame.width > 1, windowFrame.height > 1,
+              NSScreen.screens.contains(where: { $0.frame.intersects(windowFrame) })
+        else { return }
+        showFullPreviewWindow(for: windowInfo, at: windowFrame)
+    }
+
+    @MainActor
+    private func showFullPreviewWindow(for windowInfo: WindowInfo, at windowFrame: CGRect) {
         if fullPreviewWindow == nil {
             let styleMask: NSWindow.StyleMask = [.nonactivatingPanel, .fullSizeContentView, .borderless]
             fullPreviewWindow = NSPanel(contentRect: .zero, styleMask: styleMask, backing: .buffered, defer: false)
-            fullPreviewWindow?.level = NSWindow.Level(rawValue: NSWindow.Level.floating.rawValue - 1)
+            fullPreviewWindow?.level = NSWindow.Level(rawValue: level.rawValue - 1)
             fullPreviewWindow?.isOpaque = false
             fullPreviewWindow?.backgroundColor = .clear
             fullPreviewWindow?.hasShadow = true
             fullPreviewWindow?.collectionBehavior = [.canJoinAllSpaces, .transient, .fullScreenAuxiliary]
             fullPreviewWindow?.hidesOnDeactivate = false
             fullPreviewWindow?.becomesKeyOnlyIfNeeded = true
+            fullPreviewWindow?.ignoresMouseEvents = true
             fullPreviewWindow?.animationBehavior = .none
         }
 
-        let windowSize = (try? windowInfo.axElement.size()) ?? CGSize(width: screen.frame.width, height: screen.frame.height)
-        let axPosition = (try? windowInfo.axElement.position()) ?? CGPoint(x: screen.frame.midX, y: screen.frame.midY)
-
-        let convertedPosition = DockObserver.cgPointFromNSPoint(axPosition, forScreen: screen)
-        let adjustedPosition = CGPoint(x: convertedPosition.x, y: convertedPosition.y - windowSize.height)
-
-        let flippedIconRect = CGRect(origin: adjustedPosition, size: windowSize)
-
-        let previewView = FullSizePreviewView(windowInfo: windowInfo, windowSize: windowSize)
+        let previewView = FullSizePreviewView(windowInfo: windowInfo, windowSize: windowFrame.size)
         let hostingView = NSHostingView(rootView: previewView)
 
         if let oldFullPreviewContent = fullPreviewWindow?.contentView {
@@ -542,12 +557,13 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         }
         fullPreviewWindow?.contentView = hostingView
 
-        fullPreviewWindow?.setFrame(flippedIconRect, display: true)
-        fullPreviewWindow?.makeKeyAndOrderFront(nil)
+        fullPreviewWindow?.setFrame(windowFrame, display: true)
+        fullPreviewWindow?.orderFrontRegardless()
     }
 
     @MainActor
-    func hideFullPreviewWindow() {
+    func hideFullPreviewWindow(request: UUID? = nil) {
+        guard thumbnailPeekState.end(request) else { return }
         fullPreviewWindow?.orderOut(nil)
         if let currentFullPreviewContent = fullPreviewWindow?.contentView {
             currentFullPreviewContent.removeFromSuperview()
@@ -868,11 +884,9 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         hideFullPreviewWindow()
 
         if centeredHoverWindowState == .fullWindowPreview,
-           let windowInfo = windows.first,
-           let windowPosition = try? windowInfo.axElement.position(),
-           let windowScreen = windowPosition.screen()
+           let windowInfo = windows.first, let primary = NSScreen.screens.first
         {
-            showFullPreviewWindow(for: windowInfo, on: windowScreen)
+            showFullPreviewWindow(for: windowInfo, at: DockClickPreviewState.cocoaFrame(fromQuartz: windowInfo.frame, primaryScreenHeight: primary.frame.maxY))
         } else {
             self.appName = appName
             let activeDockPosition = dockPositionOverride ?? DockUtils.getDockPosition()

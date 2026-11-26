@@ -902,13 +902,17 @@ struct WindowPreview: View, Equatable {
             .fixedSize()
             .opacity(skeletonMode ? 0 : 1)
             .allowsHitTesting(!skeletonMode)
+            .onDisappear(perform: cancelFullPreviewHover)
     }
 
     private func cancelFullPreviewHover() {
         fullPreviewTimer?.invalidate()
         fullPreviewTimer = nil
+        let request = fullPreviewHoverID
         fullPreviewHoverID = nil
-        SharedPreviewWindowCoordinator.activeInstance?.hideFullPreviewWindow()
+        if let request {
+            SharedPreviewWindowCoordinator.activeInstance?.hideFullPreviewWindow(request: request)
+        }
     }
 
     private func handleFullPreviewHover(isHovering: Bool, action: PreviewHoverAction) {
@@ -924,17 +928,13 @@ struct WindowPreview: View, Equatable {
                 }
 
             case .previewFullSize:
+                guard !mockPreviewActive, fullPreviewHoverID == nil else { return }
                 let hoverID = UUID()
                 fullPreviewHoverID = hoverID
+                SharedPreviewWindowCoordinator.activeInstance?.prepareDockThumbnailPeek(hoverID)
                 let showFullPreview = {
                     guard fullPreviewHoverID == hoverID else { return }
-                    SharedPreviewWindowCoordinator.activeInstance?.showWindow(
-                        appName: windowInfo.app.localizedName ?? "Unknown",
-                        windows: [windowInfo],
-                        mouseScreen: bestGuessMonitor,
-                        dockItemElement: nil, overrideDelay: true,
-                        centeredHoverWindowState: .fullWindowPreview
-                    )
+                    SharedPreviewWindowCoordinator.activeInstance?.showDockThumbnailPeek(for: windowInfo, request: hoverID)
                 }
                 if appearance.tapEquivalentInterval == 0 {
                     showFullPreview()

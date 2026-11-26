@@ -61,3 +61,22 @@ struct DockClickPreviewState {
         CGRect(x: frame.minX, y: primaryScreenHeight - frame.maxY, width: frame.width, height: frame.height)
     }
 }
+
+struct DockThumbnailPeekState {
+    private(set) var owner: UUID?
+
+    mutating func begin(_ request: UUID) {
+        owner = request
+    }
+
+    func accepts(_ request: UUID) -> Bool {
+        owner == request
+    }
+
+    @discardableResult
+    mutating func end(_ request: UUID? = nil) -> Bool {
+        if let request, request != owner { return false }
+        owner = nil
+        return true
+    }
+}

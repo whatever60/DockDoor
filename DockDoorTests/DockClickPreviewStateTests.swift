@@ -49,6 +49,30 @@ struct DockClickPreviewStateTests {
         #expect(state.intent(for: "browser", displayedHoverBundleIdentifier: "editor") == .showNew)
     }
 
+    @Test func thumbnailPeekDoesNotEndThePinnedGroupOrAcceptStaleHover() throws {
+        var click = DockClickPreviewState()
+        let pinned = try start(&click)
+        var peek = DockThumbnailPeekState()
+        let first = UUID(), second = UUID()
+        peek.begin(first)
+        #expect(peek.accepts(first))
+        peek.begin(second)
+        #expect(!peek.accepts(first))
+        #expect(!peek.end(first))
+        #expect(peek.accepts(second))
+        #expect(peek.end(second))
+        #expect(!peek.accepts(second))
+        #expect(click.matches(pinned))
+    }
+
+    @Test func replacingThePanelInvalidatesPendingPeek() {
+        var peek = DockThumbnailPeekState()
+        let request = UUID()
+        peek.begin(request)
+        peek.end()
+        #expect(!peek.accepts(request))
+    }
+
     @Test func existingPinnedGroupCannotBeMistakenForHover() throws {
         var state = DockClickPreviewState()
         _ = try start(&state)
