@@ -37,7 +37,7 @@ The custom build does not start Sparkle's upstream updater, so an upstream updat
 `DockClickPreviewStateTests` covers toggle, outside-click geometry, stale asynchronous work, hover protection and multi-monitor coordinate conversion. These unit tests are not a substitute for physical input tests:
 
 1. Hover over a group: thumbnails appear and fade using the existing grace period.
-2. Click a group: no window activates; moving away leaves its thumbnails visible.
+2. Click a group: no window activates; moving away leaves its thumbnails visible. If that group's hover preview was already on screen, the same panel is pinned in place without being hidden or drawn again.
 3. Choose a window, click outside, press Escape, or click the same icon again: thumbnails close.
 4. A neighboring icon's hover cannot steal a clicked group. Clicking a different group replaces it.
 5. Single-window click minimize/restore, genuine right-click, stationary hold and native Dock drag reordering remain unchanged.

@@ -1,3 +1,4 @@
+import CoreGraphics
 @testable import DockDoor
 import Foundation
 import Testing
@@ -27,6 +28,32 @@ struct DockClickPreviewStateTests {
         #expect(state.acceptsDisplay(sessionID: session, revision: state.revision))
         #expect(!state.acceptsDisplay(sessionID: nil, revision: state.revision))
         #expect(!state.acceptsDisplay(sessionID: nil, revision: hoverRevision))
+    }
+
+    @Test func matchingVisibleHoverPinsWithoutChoosingTheRedrawPath() throws {
+        var state = DockClickPreviewState()
+        let hoverRevision = state.revision
+        #expect(state.intent(for: "browser", displayedHoverBundleIdentifier: "browser") == .pinDisplayedHover)
+
+        let session = try start(&state)
+        #expect(state.matches(session))
+        #expect(state.dockItemFrame == icon)
+        #expect(!state.acceptsDisplay(sessionID: nil, revision: hoverRevision))
+        #expect(!state.shouldDismiss(forMouseDownAt: CGPoint(x: 230, y: 140), previewFrame: preview))
+        #expect(state.intent(for: "browser", displayedHoverBundleIdentifier: "browser") == .dismiss)
+    }
+
+    @Test func differentOrNotYetVisibleHoverRequiresOpeningNewPreview() {
+        let state = DockClickPreviewState()
+        #expect(state.intent(for: "browser", displayedHoverBundleIdentifier: nil) == .showNew)
+        #expect(state.intent(for: "browser", displayedHoverBundleIdentifier: "editor") == .showNew)
+    }
+
+    @Test func existingPinnedGroupCannotBeMistakenForHover() throws {
+        var state = DockClickPreviewState()
+        _ = try start(&state)
+        #expect(state.intent(for: "editor", displayedHoverBundleIdentifier: "editor") == .showNew)
+        #expect(state.intent(for: "browser", displayedHoverBundleIdentifier: nil) == .dismiss)
     }
 
     @Test func repeatedClickTogglesOffIncludingPendingFetch() throws {

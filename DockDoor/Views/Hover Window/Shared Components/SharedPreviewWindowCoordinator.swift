@@ -26,6 +26,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     private var fullPreviewWindow: NSPanel?
     private var pendingShowWorkItem: DispatchWorkItem?
     private var clickPreviewState = DockClickPreviewState()
+    private var displayedHoverBundleIdentifier: String?
     private var clickPreviewEventTap: CFMachPort?
     private var clickPreviewRunLoopSource: CFRunLoopSource?
     private var clickPreviewMenuObservers: [NSObjectProtocol] = []
@@ -143,15 +144,29 @@ final class SharedPreviewWindowCoordinator: NSPanel {
     }
 
     func beginClickPreview(bundleIdentifier: String, dockItemFrame: CGRect?) -> UUID? {
-        if clickPreviewState.bundleIdentifier == bundleIdentifier {
+        let visibleHover = isVisible && alphaValue > 0 && contentView != nil ? displayedHoverBundleIdentifier : nil
+        let intent = clickPreviewState.intent(for: bundleIdentifier, displayedHoverBundleIdentifier: visibleHover)
+        switch intent {
+        case .dismiss:
             hideWindow()
             return nil
+        case .pinDisplayedHover:
+            cancelPendingShow()
+        case .showNew:
+            hideWindow()
         }
-        hideWindow()
         guard let session = clickPreviewState.begin(bundleIdentifier: bundleIdentifier, dockItemFrame: dockItemFrame) else { return nil }
         guard installClickPreviewMonitoring() else {
             DebugLogger.log("ClickPreview", details: "Unable to monitor dismissal; Accessibility permission is required")
-            hideWindow()
+            dismissClickPreview()
+            return nil
+        }
+        if intent == .pinDisplayedHover {
+            // Interrupt an in-flight fade without replacing the hosting view or moving the panel.
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0
+                self.animator().alphaValue = 1
+            }
             return nil
         }
         return session
@@ -253,6 +268,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
 
         // Always restore dock auto-hide state, even if the preview isn't visible.
         dockManager.restoreDockState()
+        displayedHoverBundleIdentifier = nil
 
         guard isVisible else { return }
 
@@ -808,8 +824,11 @@ final class SharedPreviewWindowCoordinator: NSPanel {
         }
 
         if useBigStandaloneViewInstead, let viewToShow = viewForBigStandalone {
+            displayedHoverBundleIdentifier = nil
             performShowView(viewToShow, mouseLocation: mouseLocation, mouseScreen: screen, dockItemElement: dockItemElement, dockIconRect: dockIconRect, dockPositionOverride: dockPositionOverride, dockItemFrameOverride: dockItemFrameOverride)
-        } else {
+        } else if !windows.isEmpty {
+            displayedHoverBundleIdentifier = centeredHoverWindowState == nil && dockItemElement != nil && !isClickPreviewPersistent
+                ? bundleIdentifier : nil
             performShowWindow(
                 appName: appName,
                 windows: windows,
@@ -1026,6 +1045,7 @@ final class SharedPreviewWindowCoordinator: NSPanel {
                 currentDockPosition = activeDockPosition
                 appName = folderName
                 currentlyDisplayedPID = nil
+                displayedHoverBundleIdentifier = nil
                 onWindowTap = nil
                 hideFullPreviewWindow()
                 searchWindow?.hideSearch()

@@ -1,12 +1,23 @@
+import CoreGraphics
 import Foundation
 
 struct DockClickPreviewState {
+    enum Intent: Equatable {
+        case dismiss, pinDisplayedHover, showNew
+    }
+
     private(set) var revision = UUID()
     private(set) var sessionID: UUID?
     private(set) var bundleIdentifier: String?
     private(set) var dockItemFrame: CGRect?
 
     var isPersistent: Bool { sessionID != nil }
+
+    func intent(for bundleIdentifier: String, displayedHoverBundleIdentifier: String?) -> Intent {
+        if self.bundleIdentifier == bundleIdentifier { return .dismiss }
+        if !isPersistent, displayedHoverBundleIdentifier == bundleIdentifier { return .pinDisplayedHover }
+        return .showNew
+    }
 
     mutating func begin(bundleIdentifier: String, dockItemFrame: CGRect?) -> UUID? {
         if self.bundleIdentifier == bundleIdentifier {
