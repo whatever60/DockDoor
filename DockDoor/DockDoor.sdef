@@ -41,6 +41,15 @@
             <result type="text" description="Success or error message."/>
         </command>
 
+        <command name="activate dock item" code="DKDRdkac" description="Handle a completed Windows-style Dock click.">
+            <cocoa class="ActivateDockItemCommand"/>
+            <direct-parameter type="text" description="Application bundle ID."/>
+            <parameter name="dock frame" code="dkfr" type="text" optional="yes" description="Icon frame in Quartz coordinates.">
+                <cocoa key="dockFrame"/>
+            </parameter>
+            <result type="text" description="Success or error message."/>
+        </command>
+
         <command name="show switcher" code="DKDRshsw" description="Show the window switcher.">
             <cocoa class="ShowSwitcherCommand"/>
             <result type="text" description="Success or error message."/>

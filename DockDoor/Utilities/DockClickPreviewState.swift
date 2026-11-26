@@ -2,6 +2,15 @@ import CoreGraphics
 import Foundation
 
 struct DockClickPreviewState {
+    enum SingleWindowAction {
+        case toggleMinimized, unhide, focus
+    }
+
+    static func singleWindowAction(minimized: Bool, hidden: Bool, focused: Bool) -> SingleWindowAction {
+        if minimized || (focused && !hidden) { return .toggleMinimized }
+        return hidden ? .unhide : .focus
+    }
+
     enum Intent: Equatable {
         case dismiss, pinDisplayedHover, showNew
     }

@@ -183,6 +183,47 @@ enum DockDoorCommands {
         }
     }
 
+    static func dockFrame(from value: Any?) -> CGRect? {
+        guard let numbers = (value as? String)?.split(separator: ",").compactMap({ Double($0.trimmingCharacters(in: .whitespaces)) }),
+              numbers.count == 4, numbers.allSatisfy(\.isFinite) else { return nil }
+        return CGRect(x: numbers[0], y: numbers[1], width: numbers[2], height: numbers[3])
+    }
+
+    static func activateDockItem(bundle: String, frame: CGRect?) -> String {
+        let app = findApp(identifier: bundle, type: .bundle)
+        let windows = app.map { WindowUtil.readCachedWindows(for: $0.processIdentifier) } ?? []
+        let real = WindowUtil.collapseNativeTabsIfNeeded(windows.filter {
+            $0.id != 0 && !$0.isWindowlessApp && $0.app.bundleIdentifier == bundle
+        })
+        if real.count > 1 {
+            showPreviewAsync(identifier: bundle, type: .bundle, position: nil, dockItemFrame: frame, persistent: true)
+            return "ok"
+        }
+
+        hidePreviewAsync()
+        if let app, var window = real.first {
+            window.isMinimized = (try? window.axElement.isMinimized()) ?? window.isMinimized
+            window.isHidden = app.isHidden
+            let isFocused = !window.isMinimized && !window.isHidden && app.isActive &&
+                ((try? window.appAxElement.focusedWindow()).flatMap { try? $0.cgWindowId() }) == window.id
+            switch DockClickPreviewState.singleWindowAction(minimized: window.isMinimized, hidden: window.isHidden, focused: isFocused) {
+            case .toggleMinimized:
+                if window.toggleMinimize() != nil { return "ok" }
+            case .unhide:
+                if window.toggleHidden() != nil { return "ok" }
+            case .focus:
+                window.bringToFront()
+                return "ok"
+            }
+        }
+
+        guard let url = app?.bundleURL ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) else {
+            return "error: Application not found"
+        }
+        NSWorkspace.shared.openApplication(at: url, configuration: .init(), completionHandler: nil)
+        return "ok"
+    }
+
     static func hidePreviewAsync() {
         DispatchQueue.main.async {
             guard let coordinator = SharedPreviewWindowCoordinator.activeInstance else { return }
@@ -499,13 +540,7 @@ class ShowPreviewCommand: NSScriptCommand {
             }
         }
 
-        var dockItemFrame: CGRect?
-        if let frameString = evaluatedArguments?["dockFrame"] as? String {
-            let parts = frameString.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
-            if parts.count == 4 {
-                dockItemFrame = CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3])
-            }
-        }
+        let dockItemFrame = DockDoorCommands.dockFrame(from: evaluatedArguments?["dockFrame"])
 
         let useDelay = evaluatedArguments?["withDelay"] as? Bool ?? false
         let persistent = evaluatedArguments?["persistent"] as? Bool ?? false
@@ -519,6 +554,14 @@ class ShowPreviewCommand: NSScriptCommand {
             persistent: persistent
         )
         return "ok"
+    }
+}
+
+@objc(ActivateDockItemCommand)
+class ActivateDockItemCommand: NSScriptCommand {
+    override func performDefaultImplementation() -> Any? {
+        guard let bundle = directParameter as? String else { return "error: Application bundle ID required" }
+        return DockDoorCommands.activateDockItem(bundle: bundle, frame: DockDoorCommands.dockFrame(from: evaluatedArguments?["dockFrame"]))
     }
 }
 

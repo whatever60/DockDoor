@@ -4,6 +4,16 @@ import Foundation
 import Testing
 
 struct DockClickPreviewStateTests {
+    @Test func singleWindowClickOnlyMinimizesAnAlreadyFocusedWindow() {
+        let action = DockClickPreviewState.singleWindowAction
+        #expect(action(false, false, true) == .toggleMinimized)
+        #expect(action(false, false, false) == .focus)
+        #expect(action(false, true, false) == .unhide)
+        #expect(action(false, true, true) == .unhide)
+        #expect(action(true, false, false) == .toggleMinimized)
+        #expect(action(true, true, false) == .toggleMinimized)
+    }
+
     private let icon = CGRect(x: 400, y: 0, width: 60, height: 60)
     private let preview = CGRect(x: 200, y: 70, width: 500, height: 220)
 
