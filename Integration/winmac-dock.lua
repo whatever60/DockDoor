@@ -67,7 +67,7 @@ local function dockItemAt(point)
     bundle = app and app:bundleID()
   end
   if not bundle or not bundle:match("^[%w._-]+$") then return nil end
-  return { bundle = bundle, path = path, frame = axValue(element, "AXFrame") }
+  return { bundle = bundle, frame = axValue(element, "AXFrame") }
 end
 
 local function isNearDock(point)
@@ -205,9 +205,8 @@ local function onMouse(event, log)
     end
     local point = event:location()
     if not isNearDock(point) then return false end
-    if dockMenuIsOpen() then return false end
     local item = dockItemAt(point)
-    if item then
+    if item and not dockMenuIsOpen() then
       cancelScripts() -- stale replies must not act after another Dock press
       local gestures = winmacModules and winmacModules.gestures
       if gestures and gestures.cancelSecondaryTap then gestures.cancelSecondaryTap() end
@@ -256,9 +255,11 @@ local function onMouse(event, log)
     -- complete down/up pair rather than an orphaned release.
     return false, { nativePress(held) }
   end
-  if dockMenuIsOpen() then cancelScripts(); return true end
   local releasedItem = dockItemAt(point)
-  if not releasedItem or releasedItem.bundle ~= held.item.bundle then cancelScripts(); return true end
+  if not releasedItem or releasedItem.bundle ~= held.item.bundle or dockMenuIsOpen() then
+    cancelScripts()
+    return true
+  end
 
   local generation = requestGeneration
   hs.timer.doAfter(0, function()

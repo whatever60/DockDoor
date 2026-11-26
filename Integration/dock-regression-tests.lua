@@ -53,7 +53,10 @@ local function harness(path)
   local dock = {
     attributeValue = function(_, name)
       if name == "AXRole" then return "AXApplication" end
-      if name == "AXChildren" or name == "AXWindows" then return s.menu and { menu } or {} end
+      if name == "AXChildren" or name == "AXWindows" then
+        s.menuQueries = (s.menuQueries or 0) + 1
+        return s.menu and { menu } or {}
+      end
     end,
     elementAtPosition = function(_, point)
       if point.x >= 100 and point.x < 150 and point.y >= 930 and point.y < 980 then return item end
@@ -267,6 +270,11 @@ function T.run(path)
   case("outside Dock stays native", function(s)
     assert(not s.event(types.leftMouseDown, 125, 200))
     assert(not s.event(types.leftMouseUp, 125, 200)); s.flush(); s.expect(nil, nil, 0)
+  end)
+  case("a click near but not on the Dock skips Dock menu traversal", function(s)
+    assert(not s.event(types.leftMouseDown, 200, 955))
+    assert(not s.event(types.leftMouseUp, 200, 955)); s.flush()
+    assert(not s.menuQueries and #s.scriptRequests == 0)
   end)
   case("unpaired release stays native", function(s)
     assert(not s.event(types.leftMouseUp)); s.flush(); s.expect(nil, nil, 0)
