@@ -6,8 +6,7 @@ local types = { leftMouseDown = 1, leftMouseUp = 2, leftMouseDragged = 3 }
 local userData = 100
 local function harness(path)
   local s = {
-    time = 100, activeBundle = bundle, activeWindowID = 42, menu = false,
-    windows = { { windowId = 42, bundleId = bundle, isMinimized = false, isHidden = false } },
+    time = 100, menu = false,
     calls = {}, timers = {}, warnings = {}, types = {}, itemBundle = bundle,
     nativeEvents = {}, nativeDown = false, orphanUps = 0, mouseLeft = false,
     pendingReplies = {}, scriptRequests = {}, terminatedTasks = 0,
@@ -65,14 +64,8 @@ local function harness(path)
     axuielement = { applicationElement = function() return dock end },
     application = {
       infoForBundlePath = function() return { CFBundleIdentifier = s.itemBundle } end,
-      frontmostApplication = function()
-        return s.activeBundle and { bundleID = function() return s.activeBundle end } or nil
-      end,
-      launchOrFocusByBundleID = function(id) record("open", id) end,
+      frontmostApplication = function() error("focus lookup belongs to DockDoor") end,
     },
-    window = { focusedWindow = function()
-      return s.activeWindowID and { id = function() return s.activeWindowID end } or nil
-    end },
     screen = { allScreens = function()
       return { { fullFrame = function() return { x = 0, y = 0, w = 1000, h = 1000 } end } }
     end },
@@ -85,10 +78,6 @@ local function harness(path)
         return timer
       end,
     },
-    json = { decode = function()
-      if s.badJSON then error("invalid JSON") end
-      return s.windows
-    end },
     osascript = { applescript = function()
       error("synchronous AppleScript blocks the gesture/event-tap thread")
     end },
@@ -100,22 +89,18 @@ local function harness(path)
       end
       local source = args[2]
       local function complete(forceLateReply)
-        if task.terminated and not forceLateReply then return end
-        if path == "/usr/bin/open" then callback(0, "", ""); return end
-        if source:find("list windows", 1, true) then
-          if s.queryFails then callback(1, "", "query failed")
-          else callback(0, "test-json\n", "") end
+        if task.terminated then
+          if forceLateReply then callback(0, "ok\n", "") end
           return
         end
+        if path == "/usr/bin/open" then callback(0, "", ""); return end
         if source:find("hide preview", 1, true) then
           s.previewDismissals = (s.previewDismissals or 0) + 1
-        elseif source:find("show preview", 1, true) then
-          s.previewCommand = source
-          record("preview", bundle)
         else
-          local verb, id = source:match('to (%w+) window "(%d+)"')
-          assert(verb and id, "unexpected command: " .. source)
-          record(verb, tonumber(id))
+          local target = source:match('activate dock item "([%w._-]+)"')
+          assert(target, "expected a single Dock click command")
+          if s.rejectClick then callback(0, "error: unavailable", ""); return end
+          record("activate", target)
         end
         callback(0, "ok\n", "")
       end
@@ -128,7 +113,7 @@ local function harness(path)
           assert(source:find("with timeout of 2 seconds", 1, true), "AppleEvent has no timeout")
           s.scriptRequests[#s.scriptRequests + 1] = source
           if s.taskStartFails then return false end
-          if s.stallQuery and source:find("list windows", 1, true) then
+          if s.stallClick and source:find("activate dock item", 1, true) then
             s.pendingReplies[#s.pendingReplies + 1] = complete
             return true
           end
@@ -226,63 +211,14 @@ end
 function T.run(path)
   local cases = {}
   local function case(name, fn) cases[#cases + 1] = { name, fn } end
-  case("active single window minimizes on release", function(s)
-    assert(s.click()); s.expect("minimize", 42)
-  end)
-  case("inactive single window focuses", function(s)
-    s.activeBundle = "com.other.app"; assert(s.click()); s.expect("focus", 42)
-  end)
-  case("frontmost app without that focused window focuses, not minimizes", function(s)
-    s.activeWindowID = 99; assert(s.click()); s.expect("focus", 42)
-  end)
-  case("frontmost app without a focused window focuses", function(s)
-    s.activeWindowID = nil; assert(s.click()); s.expect("focus", 42)
-  end)
-  case("minimized window restores", function(s)
-    s.windows[1].isMinimized = true; assert(s.click()); s.expect("minimize", 42)
-  end)
-  case("hidden window unhides", function(s)
-    s.windows[1].isHidden = true; assert(s.click()); s.expect("hide", 42)
-  end)
-  case("hidden plus minimized window restores in one action", function(s)
-    s.windows[1].isHidden = true; s.windows[1].isMinimized = true
-    assert(s.click()); s.expect("minimize", 42)
-  end)
-  case("two windows show only chooser", function(s)
-    s.windows[2] = { windowId = 43, bundleId = bundle }
-    assert(s.click()); s.expect("preview", bundle)
-  end)
-  case("group click requests persistent thumbnails in Quartz coordinates", function(s)
-    s.windows[2] = { windowId = 43, bundleId = bundle }
-    assert(s.click()); s.expect("preview", bundle)
-    assert(s.previewCommand:find('persistent true', 1, true), "group click requested only a transient hover preview")
-    assert(s.previewCommand:find('dock frame "100,930,50,50"', 1, true), "Dock frame coordinates changed")
-  end)
-  case("all grouped windows minimized still show only chooser", function(s)
-    s.windows[1].isMinimized = true
-    s.windows[2] = { windowId = 43, bundleId = bundle, isMinimized = true }
-    assert(s.click()); s.expect("preview", bundle)
-  end)
-  case("all grouped windows hidden still show only chooser", function(s)
-    s.windows[1].isHidden = true
-    s.windows[2] = { windowId = 43, bundleId = bundle, isHidden = true }
-    assert(s.click()); s.expect("preview", bundle)
-  end)
-  case("zero windows reopen app", function(s)
-    s.windows = {}; assert(s.click()); s.expect("open", bundle)
-  end)
-  case("windowless DockDoor placeholder reopens app", function(s)
-    s.windows[1].windowId = 0; assert(s.click()); s.expect("open", bundle)
-  end)
-  case("duplicate window records do not create a group", function(s)
-    s.windows[2] = s.windows[1]; assert(s.click()); s.expect("minimize", 42)
-  end)
-  case("foreign app window cannot be acted on", function(s)
-    s.windows[1].bundleId = "com.other.app"; assert(s.click()); s.expect("open", bundle)
+  case("a short click sends one DockDoor request", function(s)
+    assert(s.click()); s.expect("activate", bundle)
+    assert(#s.scriptRequests == 1)
+    assert(s.scriptRequests[1]:find('dock frame "100,930,50,50"', 1, true), "Dock frame coordinates changed")
   end)
   case("action is deferred until after release callback", function(s)
     s.event(types.leftMouseDown); assert(s.event(types.leftMouseUp))
-    assert(#s.calls == 0); s.flush(); s.expect("minimize", 42)
+    assert(#s.calls == 0); s.flush(); s.expect("activate", bundle)
   end)
   case("drag away and back is not a click", function(s)
     s.event(types.leftMouseDown); assert(not s.event(types.leftMouseDragged, 180, 955))
@@ -302,7 +238,7 @@ function T.run(path)
   end)
   case("minor pointer jitter stays a click", function(s)
     s.event(types.leftMouseDown); s.event(types.leftMouseDragged, 126, 956)
-    assert(s.event(types.leftMouseUp, 126, 956)); s.flush(); s.expect("minimize", 42)
+    assert(s.event(types.leftMouseUp, 126, 956)); s.flush(); s.expect("activate", bundle)
   end)
   case("release outside original icon is not a click", function(s)
     s.event(types.leftMouseDown, 147, 955)
@@ -336,14 +272,10 @@ function T.run(path)
     assert(not s.event(types.leftMouseUp)); s.flush(); s.expect(nil, nil, 0)
   end)
   case("no duplicate action on extra release", function(s)
-    assert(s.click()); assert(not s.event(types.leftMouseUp)); s.flush(); s.expect("minimize", 42)
+    assert(s.click()); assert(not s.event(types.leftMouseUp)); s.flush(); s.expect("activate", bundle)
   end)
-  case("window-query failure logs and reopens", function(s)
-    s.queryFails = true; assert(s.click()); s.expect("open", bundle)
-    assert(#s.warnings == 1)
-  end)
-  case("invalid window JSON logs and reopens", function(s)
-    s.badJSON = true; assert(s.click()); s.expect("open", bundle)
+  case("command rejection logs and reopens", function(s)
+    s.rejectClick = true; assert(s.click()); s.expect("open", bundle)
     assert(#s.warnings == 1)
   end)
   case("restart does not leave two enabled taps", function(s)
@@ -360,7 +292,7 @@ function T.run(path)
     s.event(types.leftMouseDown); s.time = s.time + 0.1
     s.event(types.leftMouseUp); s.flush(); s.advance(2)
     assert(not s.nativeMenu, "short click opened native hold menu")
-    s.expectNative({}); s.expect("minimize", 42)
+    s.expectNative({}); s.expect("activate", bundle)
   end)
   case("hold timer replays one down and forwards its matching up", function(s)
     assert(s.event(types.leftMouseDown)); s.advance(0.7)
@@ -399,40 +331,31 @@ function T.run(path)
     s.event(types.leftMouseUp); s.flush(); s.expect(nil, nil, 0)
     assert(s.previewDismissals == 1); s.balanced()
   end)
-  case("grouped short click does not dismiss preview prematurely", function(s)
-    s.windows[2] = { windowId = 43, bundleId = bundle }
-    s.click(); assert(not s.previewDismissals)
-  end)
-  case("single window action dismisses a stale clicked flyout", function(s)
-    s.click(); s.expect("minimize", 42); assert(s.previewDismissals == 1)
-  end)
-  case("windowless app reopen dismisses a stale clicked flyout", function(s)
-    s.windows = {}; s.click(); s.expect("open", bundle)
-    assert(s.previewDismissals == 1)
+  case("click does not send a separate hide command", function(s)
+    s.click(); assert(not s.previewDismissals and #s.scriptRequests == 1)
   end)
   case("stalled DockDoor reply never blocks the event tap", function(s)
-    s.stallQuery = true; s.click(); s.expect(nil, nil, 0)
+    s.stallClick = true; s.click(); s.expect(nil, nil, 0)
     assert(not s.event(types.leftMouseDown, 125, 200))
     assert(not s.event(types.leftMouseUp, 125, 200))
     s.advance(3.1); s.expect("open", bundle)
     assert(#s.warnings == 1); assert(s.terminatedTasks == 1)
   end)
   case("late reply after deadline cannot act a second time", function(s)
-    s.stallQuery = true; s.click(); s.advance(3.1)
+    s.stallClick = true; s.click(); s.advance(3.1)
     s.pendingReplies[1](true); s.flush(); s.expect("open", bundle)
     assert(#s.scriptRequests == 1, "late reply dispatched a window action")
   end)
   case("stop terminates an outstanding reply and ignores its callback", function(s)
-    s.stallQuery = true; s.click(); s.module.stop()
+    s.stallClick = true; s.click(); s.module.stop()
     s.pendingReplies[1](true); s.advance(4); s.expect(nil, nil, 0)
     assert(s.terminatedTasks == 1); assert(#s.warnings == 0)
   end)
-  case("another Dock press cancels a stale group response", function(s)
-    s.stallQuery = true; s.click()
-    s.windows[2] = { windowId = 43, bundleId = bundle }
+  case("another Dock press cancels a stale reply", function(s)
+    s.stallClick = true; s.click()
     s.event(types.leftMouseDown)
     s.pendingReplies[1](true); s.flush(); s.expect(nil, nil, 0)
-    assert(#s.scriptRequests == 1); assert(s.terminatedTasks == 1)
+    assert(#s.scriptRequests == 1 and s.terminatedTasks == 1)
   end)
   case("subprocess start failure fails open without stalling", function(s)
     s.taskStartFails = true; s.click(); s.expect("open", bundle)
@@ -442,12 +365,30 @@ function T.run(path)
     s.taskCreationFails = true; s.click(); s.expect("open", bundle)
     s.advance(4); s.expect("open", bundle); assert(#s.warnings == 1)
   end)
-  case("delayed reply remains asynchronous and preserves command order", function(s)
+  case("delayed completed click remains asynchronous", function(s)
     s.replyDelay = 0.2; s.click(); s.expect(nil, nil, 0)
-    s.advance(0.2); assert(#s.scriptRequests == 2); s.expect(nil, nil, 0)
-    s.advance(0.2); assert(#s.scriptRequests == 3); s.expect(nil, nil, 0)
-    s.advance(0.2); s.expect("minimize", 42)
-    assert(s.previewDismissals == 1)
+    assert(#s.scriptRequests == 1)
+    s.advance(0.2); s.expect("activate", bundle)
+  end)
+  case("mouse-down never runs a subprocess", function(s)
+    s.event(types.leftMouseDown); s.flush()
+    assert(#s.scriptRequests == 0)
+    assert(s.event(types.leftMouseUp)); s.flush(); s.expect("activate", bundle)
+    assert(#s.scriptRequests == 1)
+  end)
+  case("release over another icon does not dispatch a request", function(s)
+    s.event(types.leftMouseDown); s.flush(); s.itemBundle = "com.other.app"
+    assert(s.event(types.leftMouseUp)); s.flush()
+    s.expect(nil, nil, 0); assert(#s.scriptRequests == 0)
+  end)
+  case("stress: 500 rapid clicks and reorder drags preserve button pairing", function(s)
+    for i = 1, 500 do
+      s.event(types.leftMouseDown)
+      if i % 5 == 0 then s.event(types.leftMouseDragged, 180, 955) end
+      s.event(types.leftMouseUp); s.flush(); s.balanced()
+    end
+    s.expect("activate", bundle, 400)
+    assert(#s.scriptRequests == 500 and s.previewDismissals == 100)
   end)
   local passed, failures = 0, {}
   for _, test in ipairs(cases) do

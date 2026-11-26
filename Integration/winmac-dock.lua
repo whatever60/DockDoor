@@ -1,5 +1,4 @@
--- Windows-style Dock clicks. DockDoor supplies an accurate cross-Space window
--- list and the grouped-window preview; Hammerspoon handles the physical click.
+-- Hammerspoon handles the physical click; DockDoor resolves and acts on it.
 local M = {}
 local press = nil
 local dragThreshold = 8
@@ -154,85 +153,18 @@ local function appleScript(source, generation, callback)
   end
 end
 
-local function dockDoorWindows(bundle, generation, callback)
-  local source = 'tell application "DockDoor" to list windows "' .. bundle .. '" by "bundle"'
-  appleScript(source, generation, function(result, err)
-    if not result then callback(nil, err); return end
-    local ok, windows = pcall(hs.json.decode, result)
-    if not ok or type(windows) ~= "table" then callback(nil, "invalid DockDoor JSON"); return end
-    local real, seen = {}, {}
-    for _, window in ipairs(windows) do
-      local id = tonumber(window.windowId)
-      -- Ignore synthetic windowless entries and duplicate/foreign windows.
-      if id and id > 0 and not seen[id] and window.bundleId == bundle then
-        seen[id] = true
-        real[#real + 1] = window
-      end
-    end
-    callback(real)
-  end)
-end
-
-local function dockDoorWindowAction(verb, id, generation, callback)
-  local numericId = tonumber(id)
-  if not numericId then callback(nil, "invalid window ID"); return end
-  appleScript('tell application "DockDoor" to ' .. verb ..
-    ' window "' .. tostring(math.floor(numericId)) .. '"', generation, callback)
-end
-
-local function showPreview(item, generation, callback)
-  local script = 'tell application "DockDoor" to show preview "' ..
-    item.bundle .. '" by "bundle" persistent true'
+local function activateItem(item, generation, log)
+  local script = 'tell application "DockDoor" to activate dock item "' .. item.bundle .. '"'
   local frame = item.frame
   if type(frame) == "table" and frame.x and frame.y and frame.w and frame.h then
-    local coords = string.format("%d,%d,%d,%d", math.floor(frame.x),
-      math.floor(frame.y), math.floor(frame.w), math.floor(frame.h))
-    script = script .. ' dock frame "' .. coords .. '"'
+    script = script .. string.format(' dock frame "%d,%d,%d,%d"',
+      math.floor(frame.x), math.floor(frame.y), math.floor(frame.w), math.floor(frame.h))
   end
-  appleScript(script, generation, callback)
-end
-
-local function handleClick(item, activeBundle, activeWindowID, log, generation)
-  dockDoorWindows(item.bundle, generation, function(windows, err)
-    if not windows then
-      log.w("DockDoor query failed: " .. tostring(err))
+  appleScript(script, generation, function(done, err)
+    if not done then
+      log.w("DockDoor click failed: " .. tostring(err))
       openApplication(item.bundle, log)
-      return
     end
-    if #windows > 1 then
-      showPreview(item, generation, function(shown, showErr)
-        if not shown then log.w("DockDoor preview failed: " .. tostring(showErr)) end
-      end)
-      return
-    end
-    appleScript('tell application "DockDoor" to hide preview', generation, function(hidden, hideErr)
-      if not hidden then
-        log.w("DockDoor dismiss failed: " .. tostring(hideErr))
-        openApplication(item.bundle, log)
-        return
-      end
-      if #windows == 0 then openApplication(item.bundle, log); return end
-
-      local window = windows[1]
-      local id = window.windowId
-      local verb
-      if activeBundle == item.bundle and activeWindowID == tonumber(id) and
-         not window.isMinimized and not window.isHidden then
-        verb = "minimize"
-      elseif window.isMinimized then
-        verb = "minimize" -- restoring also unhides and focuses the app
-      elseif window.isHidden then
-        verb = "hide" -- DockDoor toggles hidden off and focuses the window
-      else
-        verb = "focus"
-      end
-      dockDoorWindowAction(verb, id, generation, function(done, actionErr)
-        if not done then
-          log.w("DockDoor " .. verb .. " failed: " .. tostring(actionErr))
-          openApplication(item.bundle, log)
-        end
-      end)
-    end)
   end)
 end
 
@@ -247,6 +179,7 @@ local function nativePress(held)
   cancelHold(held)
   if held.native then return nil end
   held.native = true
+  cancelScripts()
   -- A native hold menu or reorder drag supersedes a clicked thumbnail flyout.
   -- Keep AppleScript out of the physical event-tap callback itself.
   local generation = requestGeneration
@@ -278,12 +211,8 @@ local function onMouse(event, log)
       cancelScripts() -- stale replies must not act after another Dock press
       local gestures = winmacModules and winmacModules.gestures
       if gestures and gestures.cancelSecondaryTap then gestures.cancelSecondaryTap() end
-      local active = hs.application.frontmostApplication()
-      local window = hs.window.focusedWindow()
       local held = {
         point = point, item = item,
-        activeBundle = active and active:bundleID(),
-        activeWindowID = window and window:id(),
         startedAt = hs.timer.secondsSinceEpoch(),
         down = event:copy(), native = false,
       }
@@ -327,14 +256,14 @@ local function onMouse(event, log)
     -- complete down/up pair rather than an orphaned release.
     return false, { nativePress(held) }
   end
-  if dockMenuIsOpen() then return true end
+  if dockMenuIsOpen() then cancelScripts(); return true end
   local releasedItem = dockItemAt(point)
-  if not releasedItem or releasedItem.bundle ~= held.item.bundle then return true end
+  if not releasedItem or releasedItem.bundle ~= held.item.bundle then cancelScripts(); return true end
 
   local generation = requestGeneration
   hs.timer.doAfter(0, function()
     if not currentRequest(generation) then return end
-    local ok, err = pcall(handleClick, releasedItem, held.activeBundle, held.activeWindowID, log, generation)
+    local ok, err = pcall(activateItem, releasedItem, generation, log)
     if not ok then log.e("Dock click: " .. tostring(err)) end
   end)
   return true -- replace native Dock activation, which chooses a window for us
